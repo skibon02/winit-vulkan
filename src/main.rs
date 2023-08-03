@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use log::{info, error};
 use winit::{
     event::{Event, WindowEvent},

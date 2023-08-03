@@ -72,7 +72,8 @@ impl DebugUtilsHelper {
 
 pub struct CapabilitiesChecker {
     activated_layers: BTreeSet<String>,
-    activated_instance_extensions: BTreeSet<String>
+    activated_instance_extensions: BTreeSet<String>,
+    activated_device_extensions: BTreeSet<String>
 }
 
 impl CapabilitiesChecker {
@@ -80,6 +81,7 @@ impl CapabilitiesChecker {
         CapabilitiesChecker{
             activated_layers: BTreeSet::new(),
             activated_instance_extensions: BTreeSet::new(),
+            activated_device_extensions: BTreeSet::new()
         }
     }
 
@@ -129,7 +131,7 @@ impl CapabilitiesChecker {
                 self.activated_instance_extensions.insert(name.to_owned());
                 return true;
             }
-            warn!("Extension {name} is not supported!");
+            warn!("Instance extension {name} is not supported!");
             false
         }).map(|layer| layer.as_ptr()).collect();
 
@@ -145,9 +147,52 @@ impl CapabilitiesChecker {
             info!("Activated layer: {}", l);
         }
         for e in self.activated_instance_extensions.iter() {
-            info!("Activated extension: {}", e);
+            info!("Activated instance extension: {}", e);
         }
 
         Ok(instance)
+    }
+
+    pub fn create_device(&mut self, instance: &ash::Instance, physical_device: vk::PhysicalDevice, create_info: &mut vk::DeviceCreateInfo) -> anyhow::Result<ash::Device> {
+
+        let requested_extensions = unsafe {slice::from_raw_parts(create_info.pp_enabled_extension_names, create_info.enabled_extension_count as usize)};
+        let requested_extensions: Vec<_> = requested_extensions.iter()
+            .map(|ext| unsafe { CStr::from_ptr(*ext) })
+            .collect();
+
+        let supported_extensions = unsafe { instance.enumerate_device_extension_properties(physical_device)? };
+
+        let filtered_extensions: Vec<_> = requested_extensions.iter().filter(|e| {
+            let name: &str = e.to_str().unwrap();
+            let supported = supported_extensions.iter().find(|supported_extension| {
+                let supported_e_name_bytes = supported_extension.extension_name;
+                let supported_e_name = unsafe { CStr::from_ptr(supported_e_name_bytes.as_ptr()) }.to_str().unwrap();
+                supported_e_name == name
+            });
+
+            if supported.is_some() {
+                self.activated_device_extensions.insert(name.to_owned());
+                return true;
+            }
+            warn!("Device extension {name} is not supported!");
+            false
+        }).map(|layer| layer.as_ptr()).collect();
+
+        create_info.enabled_extension_count = filtered_extensions.len() as u32;
+        create_info.pp_enabled_extension_names = filtered_extensions.as_ptr();
+
+        let device = unsafe {instance.create_device(physical_device, create_info, None)?};
+
+        for e in self.activated_device_extensions.iter() {
+            info!("Activated device extension: {}", e);
+        }
+
+        Ok(device)
+    }
+}
+
+impl Default for CapabilitiesChecker {
+    fn default() -> Self {
+        Self::new()
     }
 }

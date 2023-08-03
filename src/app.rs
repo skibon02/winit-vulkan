@@ -19,7 +19,7 @@ use log::{info, debug};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use winit::window::Window;
 
-use ash::{Entry, Instance};
+use ash::{Entry, Instance, Device};
 use ash::vk::{self, make_api_version, ApplicationInfo, SurfaceKHR};
 
 use std::ffi::CString;
@@ -32,7 +32,9 @@ pub struct App{
     surface: SurfaceKHR,
     debug_utils: helpers::DebugUtilsHelper,
 
-    capabilities_checker: helpers::CapabilitiesChecker
+    capabilities_checker: helpers::CapabilitiesChecker,
+
+    device: Device
 }
 
 impl App {
@@ -87,6 +89,57 @@ impl App {
         let debug_utils = helpers::DebugUtilsHelper::new(&entry, &instance)?;
         // instance is created. debug utils ready
 
+
+        let physical_devices = unsafe { instance.enumerate_physical_devices().unwrap() };
+
+        let physical_device = *physical_devices.iter().find(|&d| {
+            let properties = unsafe { instance.get_physical_device_properties(*d) };
+            properties.device_type == vk::PhysicalDeviceType::DISCRETE_GPU
+        }).or_else(|| {
+            physical_devices.iter().find(|&d| {
+                let properties = unsafe { instance.get_physical_device_properties(*d) };
+                properties.device_type == vk::PhysicalDeviceType::INTEGRATED_GPU
+            })
+        }).or_else(|| {
+            physical_devices.iter().find(|&d| {
+                let properties = unsafe { instance.get_physical_device_properties(*d) };
+                properties.device_type == vk::PhysicalDeviceType::CPU
+            })
+        }).unwrap_or_else(|| {
+            panic!("No avaliable physical device found");
+        });
+        
+        //select chosen physical device
+        let dev_name_array = unsafe { instance.get_physical_device_properties(physical_device).device_name };
+        let dev_name = unsafe {std::ffi::CStr::from_ptr(dev_name_array.as_ptr())};
+        println!("Chosen device: {}", dev_name.to_str().unwrap());
+
+
+        let queue_family_properties = unsafe { instance.get_physical_device_queue_family_properties(physical_device) };
+        let queue_family_index = queue_family_properties.iter().enumerate().find(|(_, p)| {
+
+            let support_graphics = p.queue_flags.contains(vk::QueueFlags::GRAPHICS) ;
+            let support_presentation = unsafe { surface_loader.get_physical_device_surface_support(physical_device, 0, surface) }.unwrap();
+
+            support_graphics && support_presentation
+        }).map(|(i, _)| i as u32).unwrap_or_else(|| {
+            panic!("No avaliable queue family found");
+        });
+
+        let device_extensions = vec![vk::KhrSwapchainFn::name().as_ptr()];
+
+        let queue_create_infos = [vk::DeviceQueueCreateInfo::builder()
+            .queue_family_index(queue_family_index)
+            .queue_priorities(&[1.0])
+            .build()];
+        let mut device_create_info = vk::DeviceCreateInfo::builder()
+            .queue_create_infos(&queue_create_infos)
+            .enabled_extension_names(&device_extensions)
+            .enabled_layer_names(&instance_layers_refs);
+
+        let device = caps_checker.create_device(&instance, physical_device, &mut device_create_info)?;
+
+
         Ok(App {
             entry,
             instance, 
@@ -94,8 +147,9 @@ impl App {
             surface_loader,
             surface,
             debug_utils,
-            capabilities_checker: caps_checker
-            
+            capabilities_checker: caps_checker,
+
+            device
         })
     }
 
@@ -111,6 +165,7 @@ impl Drop for App {
     fn drop(&mut self) {
         info!("drop");
 
+        unsafe { self.device.destroy_device(None) };
         unsafe {self.surface_loader.destroy_surface(self.surface, None)};
         unsafe { self.debug_utils.destroy() };
         unsafe { self.instance.destroy_instance(None) };
