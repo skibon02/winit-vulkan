@@ -36,6 +36,7 @@ fn main() {
     let window = WindowBuilder::new().with_title("Winit hello!").build(&event_loop).unwrap();
     let main_window_id = window.id();
 
+    let mut event_handler = 
     rt.block_on(async {
         let mut app = App::new(&window).unwrap();
 
@@ -70,9 +71,9 @@ fn main() {
 
             }
             info!("Exiting event loop...");
-        });
+        })
     });
-
+    let mut event_handler = Some(event_handler);
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
@@ -84,6 +85,11 @@ fn main() {
             } if *window_id == main_window_id => {
 
                 event_tx.send(MsgToHandler::Exit).unwrap();
+                if let Some(event_handler) = event_handler.take() {
+                    rt.block_on(async move {
+                        event_handler.await.unwrap();
+                    });
+                }
                 *control_flow = ControlFlow::Exit;
             }
             _ => (),

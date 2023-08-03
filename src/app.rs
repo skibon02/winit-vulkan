@@ -20,7 +20,7 @@ use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use winit::window::Window;
 
 use ash::{Entry, Instance, Device};
-use ash::vk::{self, make_api_version, ApplicationInfo, SurfaceKHR};
+use ash::vk::{self, make_api_version, ApplicationInfo, SurfaceKHR, Queue};
 
 use std::ffi::CString;
 
@@ -34,7 +34,9 @@ pub struct App{
 
     capabilities_checker: helpers::CapabilitiesChecker,
 
-    device: Device
+    device: Device,
+    queue: Queue,
+    command_pool: vk::CommandPool,
 }
 
 impl App {
@@ -138,6 +140,12 @@ impl App {
 
         let device = caps_checker.create_device(&instance, physical_device, &mut device_create_info)?;
 
+        let queue = unsafe { device.get_device_queue(queue_family_index, 0) };
+        let command_pool = unsafe { device.create_command_pool(&vk::CommandPoolCreateInfo::builder()
+            .queue_family_index(queue_family_index)
+            .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
+            .build(), None) }.context("Command pool creation")?;
+
 
         Ok(App {
             entry,
@@ -148,7 +156,9 @@ impl App {
             debug_utils,
             capabilities_checker: caps_checker,
 
-            device
+            device,
+            queue,
+            command_pool
         })
     }
 
@@ -169,7 +179,6 @@ impl Drop for App {
         unsafe { self.debug_utils.destroy() };
         unsafe { self.instance.destroy_instance(None) };
 
-        println!("Dropped");
     }
 }
 
