@@ -134,8 +134,7 @@ impl App {
             .build()];
         let mut device_create_info = vk::DeviceCreateInfo::builder()
             .queue_create_infos(&queue_create_infos)
-            .enabled_extension_names(&device_extensions)
-            .enabled_layer_names(&instance_layers_refs);
+            .enabled_extension_names(&device_extensions);
 
         let device = caps_checker.create_device(&instance, physical_device, &mut device_create_info)?;
 
@@ -166,9 +165,11 @@ impl Drop for App {
         info!("drop");
 
         unsafe { self.device.destroy_device(None) };
-        unsafe {self.surface_loader.destroy_surface(self.surface, None)};
+        unsafe { self.surface_loader.destroy_surface(self.surface, None)};
         unsafe { self.debug_utils.destroy() };
         unsafe { self.instance.destroy_instance(None) };
+
+        println!("Dropped");
     }
 }
 

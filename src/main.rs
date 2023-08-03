@@ -69,6 +69,7 @@ fn main() {
                 }
 
             }
+            info!("Exiting event loop...");
         });
     });
 
