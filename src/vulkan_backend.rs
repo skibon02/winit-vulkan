@@ -27,6 +27,7 @@ use ash::{Entry, Instance, Device};
 use ash::vk::{self, make_api_version, ApplicationInfo, SurfaceKHR, Queue};
 
 use std::ffi::CString;
+use std::mem;
 
 pub struct VulkanBackend {
     entry: Entry,
@@ -192,6 +193,9 @@ impl VulkanBackend {
 impl Drop for VulkanBackend {
     fn drop(&mut self) {
         info!("drop");
+        if let Some(mut swapchain) = self.swapchain_wrapper.take() {
+            unsafe { swapchain.destroy() };
+        }
 
         unsafe { self.device.device_wait_idle().unwrap() };
         unsafe { self.device.destroy_command_pool(self.command_pool, None) };

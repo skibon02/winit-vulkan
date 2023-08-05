@@ -164,10 +164,8 @@ impl<'a> SwapchainWrapper {
             device: device.clone()
         })
     }
-}
 
-impl Drop for SwapchainWrapper {
-    fn drop(&mut self) {
+    pub unsafe fn destroy(&mut self) {
         unsafe {
             let device = &self.device;
             for framebuffer in self.framebuffers.iter() {
