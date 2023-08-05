@@ -9,14 +9,18 @@ pub mod pipeline{
     }
 }
 
+pub mod swapchain_wrapper;
+
 
 use crate::helpers::{self, DebugUtilsHelper, CapabilitiesChecker};
+use crate::vulkan_backend::swapchain_wrapper::SwapchainWrapper;
 
 use anyhow::Context;
 use ash::extensions::khr::Surface;
 use ash_window::create_surface;
 use log::{info, debug};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
+use winit::dpi::{Size, PhysicalSize};
 use winit::window::Window;
 
 use ash::{Entry, Instance, Device};
@@ -24,22 +28,26 @@ use ash::vk::{self, make_api_version, ApplicationInfo, SurfaceKHR, Queue};
 
 use std::ffi::CString;
 
-pub struct App{
+pub struct VulkanBackend {
     entry: Entry,
     instance: Instance,
     surface_loader: Surface,
 
     surface: SurfaceKHR,
+    surface_resolution: PhysicalSize<u32>,
     debug_utils: helpers::DebugUtilsHelper,
 
     capabilities_checker: helpers::CapabilitiesChecker,
+    physical_device: vk::PhysicalDevice,
 
     device: Device,
     queue: Queue,
     command_pool: vk::CommandPool,
+
+    swapchain_wrapper: Option<SwapchainWrapper>,
 }
 
-impl App {
+impl VulkanBackend {
     // Initialize vulkan resources and use window to create surface
     pub fn new(window: &Window) -> anyhow::Result<Self> {
         let entry = Entry::linked();
@@ -87,6 +95,7 @@ impl App {
 
         let surface_loader = Surface::new(&entry, &instance);
         let surface = unsafe { create_surface(&entry, &instance, display_handle, window_handle, None).context("Surface creation")? };
+        let surface_resolution = window.inner_size();
 
         let debug_utils = helpers::DebugUtilsHelper::new(&entry, &instance)?;
         // instance is created. debug utils ready
@@ -146,20 +155,30 @@ impl App {
             .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
             .build(), None) }.context("Command pool creation")?;
 
-
-        Ok(App {
+        Ok(VulkanBackend {
             entry,
             instance, 
 
             surface_loader,
             surface,
+            surface_resolution,
             debug_utils,
             capabilities_checker: caps_checker,
+            physical_device,
 
             device,
             queue,
-            command_pool
+            command_pool,
+
+            swapchain_wrapper: None,
         })
+    }
+
+    pub fn init_swapchain(&mut self) -> anyhow::Result<()> {
+
+        self.swapchain_wrapper = Some(SwapchainWrapper::new(self)?);
+
+        Ok(())
     }
 
     pub fn render(&mut self) -> anyhow::Result<()> {
@@ -170,10 +189,12 @@ impl App {
     }
 }
 
-impl Drop for App {
+impl Drop for VulkanBackend {
     fn drop(&mut self) {
         info!("drop");
 
+        unsafe { self.device.device_wait_idle().unwrap() };
+        unsafe { self.device.destroy_command_pool(self.command_pool, None) };
         unsafe { self.device.destroy_device(None) };
         unsafe { self.surface_loader.destroy_surface(self.surface, None)};
         unsafe { self.debug_utils.destroy() };

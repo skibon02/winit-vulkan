@@ -1,3 +1,4 @@
+use anyhow::Context;
 use log::{info, error};
 use winit::{
     event::{Event, WindowEvent},
@@ -8,8 +9,8 @@ use winit::{
 
 pub mod helpers;
 
-pub mod app;
-use app::App;
+pub mod vulkan_backend;
+use vulkan_backend::VulkanBackend;
 
 pub mod resource_manager;
 
@@ -36,9 +37,10 @@ fn main() {
     let window = WindowBuilder::new().with_title("Winit hello!").build(&event_loop).unwrap();
     let main_window_id = window.id();
 
-    let mut event_handler = 
+    let event_handler = 
     rt.block_on(async {
-        let mut app = App::new(&window).unwrap();
+        let mut app = VulkanBackend::new(&window).unwrap();
+        app.init_swapchain().context("Swapchain initialization").unwrap();
 
         rt.spawn(async move {
             loop {
@@ -73,6 +75,8 @@ fn main() {
             info!("Exiting event loop...");
         })
     });
+
+
     let mut event_handler = Some(event_handler);
 
     event_loop.run(move |event, _, control_flow| {
