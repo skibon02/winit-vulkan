@@ -1,8 +1,8 @@
 
 use core::slice;
-use std::{collections::BTreeSet, ffi::{CString, c_char, CStr}, ops::Deref};
+use std::{collections::BTreeSet, ffi::{CStr}};
 
-use ash::{vk::{self, DebugUtilsMessageSeverityFlagsEXT, DebugUtilsMessageTypeFlagsEXT, DebugUtilsMessengerCreateInfoEXT, LayerProperties}, Instance, Entry};
+use ash::{vk::{self, DebugUtilsMessageSeverityFlagsEXT, DebugUtilsMessageTypeFlagsEXT, DebugUtilsMessengerCreateInfoEXT}, Instance, Entry};
 use log::{error, info, warn, debug};
 
 

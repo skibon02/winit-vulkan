@@ -1,5 +1,5 @@
 use anyhow::Context;
-use log::{info, error};
+use log::{info};
 use winit::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},

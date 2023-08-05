@@ -18,16 +18,16 @@ use crate::vulkan_backend::swapchain_wrapper::SwapchainWrapper;
 use anyhow::Context;
 use ash::extensions::khr::Surface;
 use ash_window::create_surface;
-use log::{info, debug};
+use log::{info};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
-use winit::dpi::{Size, PhysicalSize};
+use winit::dpi::{PhysicalSize};
 use winit::window::Window;
 
 use ash::{Entry, Instance, Device};
 use ash::vk::{self, make_api_version, ApplicationInfo, SurfaceKHR, Queue};
 
 use std::ffi::CString;
-use std::mem;
+
 
 pub struct VulkanBackend {
     entry: Entry,
