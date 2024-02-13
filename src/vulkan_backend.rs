@@ -72,8 +72,8 @@ impl VulkanBackend {
             .collect();
 
         //define desired extensions
-        let display_handle = window.raw_display_handle();
-        let window_handle = window.raw_window_handle();
+        let display_handle = window.raw_display_handle().unwrap();
+        let window_handle = window.raw_window_handle().unwrap();
 
         let surface_required_extensions = ash_window::enumerate_required_extensions(display_handle)?;
         let mut instance_extensions: Vec<*const i8> = 

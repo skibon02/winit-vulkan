@@ -7,7 +7,7 @@ use anyhow::Context;
 use log::{error, info};
 use winit::{
     event::{Event, WindowEvent},
-    event_loop::{ControlFlow, EventLoop},
+    event_loop::{EventLoop},
     window::WindowBuilder,
 };
 use winit::window::WindowId;
@@ -24,43 +24,33 @@ pub mod resource_manager;
 fn main() {
     simple_logger::init_with_level(log::Level::Info).unwrap();
     console_subscriber::init();
-    info!("Hello, world!");
 
 
-    //init tokio runtime
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-
-    let event_loop = EventLoop::new();
+    let event_loop = EventLoop::new().unwrap();
     let window = WindowBuilder::new().with_title("Winit hello!").build(&event_loop).unwrap();
     let main_window_id = window.id();
 
     let mut app = App::new_winit(window, main_window_id);
 
-    event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Wait;
-
-        if let Some(evt) = event.to_static() {
-            if let Err(e) = app.handle_event(evt) {
-                error!("Error handling event: {:?}", e);
-                return
-            }
-        }
-
+    event_loop.run(move |event, elwt| {
         match &event {
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
                 window_id,
             } if *window_id == main_window_id => {
+                elwt.exit();
 
                 app.wait_exit().unwrap();
-                *control_flow = ControlFlow::Exit;
             }
             _ => (),
         }
-    });
+
+        if let Err(e) = app.handle_event(event) {
+            error!("Error handling event: {:?}", e);
+            return
+        }
+
+    }).unwrap();
 
 
 }
@@ -68,7 +58,7 @@ pub struct App<E>
 where E: 'static + Clone + Send + Debug{
     jh: Option<thread::JoinHandle<()>>,
     is_exiting: Arc<AtomicBool>,
-    event_sender: Sender<Event<'static, E>>
+    event_sender: Sender<Event<E>>
 }
 
 impl<E> App<E>
@@ -90,18 +80,21 @@ where E: Clone + Send + 'static + Debug {
                 // println!("On thread {:?}", std::thread::current().id());
 
                 match event {
+
                     Event::WindowEvent {
-                        event: WindowEvent::Resized(size),
+                        event,
                         window_id,
-                    } if window_id == main_window_id => {
-                        info!("Resized to {:?}", size);
+                    } if window_id == main_window_id => match event {
+                        WindowEvent::RedrawRequested => {
+                            info!("Redraw requested");
+                            app.render().unwrap();
+                            break;
+                        }
+                        _ => (),
                     }
-                    Event::MainEventsCleared => {
-                        info!("Main events cleared");
+                    Event::AboutToWait => {
+                        info!("About to wait");
                         app.render().unwrap();
-                    }
-                    Event::RedrawRequested(window_id) if window_id == main_window_id => {
-                        info!("Redraw requested");
                     }
                     _ => (),
                 }
@@ -134,7 +127,7 @@ where E: Clone + Send + 'static + Debug {
     }
 
     // should not be called
-    pub fn handle_event(&mut self, evt: Event<'static, E>) -> anyhow::Result<()> {
+    pub fn handle_event(&mut self, evt: Event<E>) -> anyhow::Result<()> {
         info!("handling event...");
         self.event_sender.send(evt).unwrap();
 
