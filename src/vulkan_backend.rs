@@ -26,7 +26,7 @@ use winit::window::Window;
 use ash::{Entry, Instance, Device};
 use ash::vk::{self, make_api_version, ApplicationInfo, SurfaceKHR, Queue};
 
-use std::ffi::CString;
+use std::ffi::{c_char, CString};
 
 
 pub struct VulkanBackend {
@@ -68,15 +68,15 @@ impl VulkanBackend {
         if cfg!(debug_assertions) {
             instance_layers.push(CString::new("VK_LAYER_KHRONOS_validation")?);
         }
-        let instance_layers_refs: Vec<*const i8> = instance_layers.iter().map(|l| l.as_ptr())
+        let instance_layers_refs: Vec<*const c_char> = instance_layers.iter().map(|l| l.as_ptr())
             .collect();
 
         //define desired extensions
-        let display_handle = window.raw_display_handle().unwrap();
-        let window_handle = window.raw_window_handle().unwrap();
+        let display_handle = window.raw_display_handle();
+        let window_handle = window.raw_window_handle();
 
         let surface_required_extensions = ash_window::enumerate_required_extensions(display_handle)?;
-        let mut instance_extensions: Vec<*const i8> = 
+        let mut instance_extensions: Vec<*const c_char> =
             surface_required_extensions.to_vec();
         instance_extensions.push(ash::extensions::ext::DebugUtils::name().as_ptr());
 
@@ -129,7 +129,6 @@ impl VulkanBackend {
 
         let queue_family_properties = unsafe { instance.get_physical_device_queue_family_properties(physical_device) };
         let queue_family_index = queue_family_properties.iter().enumerate().find(|(_, p)| {
-
             let support_graphics = p.queue_flags.contains(vk::QueueFlags::GRAPHICS) ;
             let support_presentation = unsafe { surface_loader.get_physical_device_surface_support(physical_device, 0, surface) }.unwrap();
 
@@ -176,7 +175,6 @@ impl VulkanBackend {
     }
 
     pub fn init_swapchain(&mut self) -> anyhow::Result<()> {
-
         self.swapchain_wrapper = Some(SwapchainWrapper::new(self)?);
 
         Ok(())
