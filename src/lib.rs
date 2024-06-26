@@ -8,12 +8,10 @@ use anyhow::Context;
 use jni::JavaVM;
 use jni::objects::{JObject, JObjectArray, JValue};
 use log::{error, info, warn};
-use winit::{
-    event::{Event, WindowEvent},
-    event_loop::{EventLoop},
-};
-use winit::event_loop::EventLoopBuilder;
-use winit::window::{Window, WindowBuilder, WindowId};
+use winit::{event::{Event, WindowEvent}, event_loop::{EventLoop}, event_loop};
+use winit::application::ApplicationHandler;
+use winit::event_loop::{ActiveEventLoop, EventLoopBuilder};
+use winit::window::{Window, WindowAttributes, WindowId};
 
 
 pub mod helpers;
@@ -39,7 +37,7 @@ fn android_main(app: AndroidApp) {
     let vm = unsafe { JavaVM::from_raw(app.vm_as_ptr() as _) }.unwrap();
     let mut env = vm.get_env().unwrap();
 
-    let activity = unsafe { JObject::from_raw(app.activity_as_ptr() as jobject) };
+    let activity = unsafe { JObject::from_raw(app.activity_as_ptr() as jni::sys::jobject) };
 
     let windowmanager = env.call_method(&activity, "getWindowManager", "()Landroid/view/WindowManager;", &[]).unwrap().l().unwrap();
     let display = env.call_method(&windowmanager, "getDefaultDisplay", "()Landroid/view/Display;", &[]).unwrap().l().unwrap();
@@ -80,33 +78,63 @@ fn android_main(app: AndroidApp) {
     run(event_loop);
 }
 
-pub fn run(event_loop: EventLoop<()>) {
-    let window = WindowBuilder::new().with_title("Winit hello!").build(&event_loop).unwrap();
-    let main_window_id = window.id();
+struct WinitApp {
+    app: Option<App>
+}
 
-    let mut app = App::new_winit(window, main_window_id);
+impl WinitApp {
+    fn new() -> Self {
+        Self {
+            app: None
+        }
+    }
+}
 
-    event_loop.run(move |event, elwt| {
-        if app.is_finished() {
+impl ApplicationHandler for WinitApp {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        info!("\t\t*** APP RESUMED ***");
+        let window = event_loop.create_window(WindowAttributes::default().with_title("Winit hello!")).unwrap();
+        let main_window_id = window.id();
+
+        let mut app = App::new_winit(window, main_window_id);
+        app.send_resumed();
+        self.app = Some(app);
+    }
+
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: WindowId, event: WindowEvent) {
+        if self.app.as_mut().unwrap().is_finished() {
             info!("Exit requested!");
-            elwt.exit();
+            event_loop.exit();
         }
-        match app.handle_event(event) {
-            Ok(_) => {
-            },
-            Err(e) => {
-                error!("Error handling event: {:?}", e);
-            }
+        if let Err(e) = self.app.as_mut().unwrap().handle_event(event_loop, event) {
+            error!("Error handling event: {:?}", e);
         }
-    }).unwrap();
+    }
+
+    fn exiting(&mut self, event_loop: &ActiveEventLoop) {
+        info!("\t\t*** APP EXITING ***");
+    }
+    //
+    // fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+    //     info!("\t\t*** APP ABOUT TO WAIT ***");
+    // }
+
+    fn memory_warning(&mut self, event_loop: &ActiveEventLoop) {
+        info!("\t\t*** APP MEMORY WARNING ***");
+
+    }
+}
+
+pub fn run(event_loop: EventLoop<()>) {
+    let mut winit_app = WinitApp::new();
+    event_loop.run_app(&mut winit_app).unwrap();
 }
 
 
-pub struct App<E>
-    where E: 'static + Clone + Send + Debug{
+pub struct App {
     jh: Option<thread::JoinHandle<()>>,
     is_exiting: Arc<AtomicBool>,
-    event_sender: Sender<Event<E>>,
+    event_sender: Sender<RendererMessage>,
     main_window_id: WindowId,
     app_finished: bool,
     prev_touch_event_time: Instant
@@ -117,9 +145,15 @@ pub enum AppResult {
     Exit
 }
 
-impl<E> App<E>
-    where E: Clone + Send + 'static + Debug {
-    pub fn new_winit(window: Window, main_window_id: WindowId) -> App<E> {
+#[derive(Debug)]
+enum RendererMessage {
+    Resumed,
+    RedrawRequested,
+    Exiting
+}
+
+impl App {
+    pub fn new_winit(window: Window, main_window_id: WindowId) -> App {
 
         let is_exiting = Arc::new(AtomicBool::new(false));
         let (tx, rx) = std::sync::mpsc::channel();
@@ -130,17 +164,15 @@ impl<E> App<E>
             info!("Thread started!");
             #[cfg(target_os = "android")]
             {
-                info!("Waiting for RESUMED event...");
+                info!("Waiting for event...");
                 loop {
-                    let event = rx.recv().unwrap();
-                    info!("Received event: {:?}", event);
-                    match event {
-                        Event::Resumed => {
-
-                            info!("Resumed event received!");
+                    let msg = rx.recv().unwrap();
+                    match msg {
+                        RendererMessage::Resumed => {
+                            info!("Received RESUMED signal!");
                             break;
                         }
-                        _ => (),
+                        _ => {}
                     }
                 }
             }
@@ -149,22 +181,18 @@ impl<E> App<E>
             app.init_swapchain().context("Swapchain initialization").unwrap();
 
             loop {
-                let event = rx.recv().unwrap();
-                info!("Received event: {:?}", event);
+                let message = rx.recv().unwrap();
+                info!("Received message: {:?}", message);
                 // println!("On thread {:?}", std::thread::current().id());
 
-                match event {
-                    Event::WindowEvent {
-                        event,
-                        window_id,
-                    } if window_id == main_window_id => match event {
-                        WindowEvent::RedrawRequested => {
-                            info!("Redraw requested");
-                            app.render().unwrap();
-                        }
-                        _ => (),
+                match message {
+                    RendererMessage::RedrawRequested => {
+                        info!("Redraw requested");
+                        app.render().unwrap();
                     }
-                    _ => (),
+                    _ => {
+
+                    }
                 }
 
                 if is_exiting.load(Ordering::Relaxed) {
@@ -189,23 +217,19 @@ impl<E> App<E>
         self.app_finished
     }
 
-    pub fn handle_event(&mut self, evt: Event<E>) -> anyhow::Result<()> {
+    pub fn handle_event(&mut self, event_loop: &ActiveEventLoop, evt: WindowEvent) -> anyhow::Result<()> {
+        info!("new window event: {:?}", evt);
         match &evt {
-            Event::WindowEvent {
-                event: WindowEvent::CloseRequested,
-                window_id,
-            } if *window_id == self.main_window_id => {
+            WindowEvent::CloseRequested  => {
                 info!("Close requested...");
                 self.is_exiting.store(true, Ordering::Relaxed);
+                self.event_sender.send(RendererMessage::Exiting).unwrap();
                 self.jh.take().unwrap().join().unwrap();
                 info!("Main thread joined!");
                 self.app_finished = true;
             },
 
-            Event::WindowEvent {
-                event: WindowEvent::Touch(t),
-                window_id,
-            } if *window_id == self.main_window_id => {
+            WindowEvent::Touch(t) => {
                 info!("Touch event: {:?}", t);
                 let now = Instant::now();
                 let prev = self.prev_touch_event_time;
@@ -214,13 +238,17 @@ impl<E> App<E>
                 info!("Elapsed: {:?}", elapsed);
             },
 
+            WindowEvent::RedrawRequested => {
+                self.event_sender.send(RendererMessage::RedrawRequested).unwrap();
+            }
+
             _ => (),
         }
 
-        if self.event_sender.send(evt.clone()).is_err() {
-            warn!("Event sender is closed! event {:?} was not delivered!", evt);
-        }
-
         Ok(())
+    }
+
+    pub fn send_resumed(&mut self) {
+        self.event_sender.send(RendererMessage::Resumed).unwrap();
     }
 }
