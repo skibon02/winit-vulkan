@@ -95,7 +95,7 @@ impl ResourceManager {
 
         println!("Host access policy: {:?}", host_access_policy);
 
-        let fence = unsafe {device.create_fence(&vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED), None).unwrap()};
+        let fence = unsafe {device.create_fence(&vk::FenceCreateInfo::default().flags(vk::FenceCreateFlags::SIGNALED), None).unwrap()};
 
         Self {
             buffer_resources: Vec::new(),
@@ -117,7 +117,7 @@ impl ResourceManager {
         if let HostAccessPolicy::UseStaging { host_memory_type: _, device_memory_type: _ } = self.host_access_policy {
             usage |= vk::BufferUsageFlags::TRANSFER_DST;
         }
-        let buffer_create_info = vk::BufferCreateInfo::builder()
+        let buffer_create_info = vk::BufferCreateInfo::default()
             .size(size)
             .usage(usage)
             .sharing_mode(vk::SharingMode::EXCLUSIVE);
@@ -128,12 +128,12 @@ impl ResourceManager {
 
         let memory_allocate_info = match self.host_access_policy {
             HostAccessPolicy::SingleBuffer(memory_type) => {
-                vk::MemoryAllocateInfo::builder()
+                vk::MemoryAllocateInfo::default()
                     .allocation_size(memory_requirements.size)
                     .memory_type_index(memory_type as u32)
             },
             HostAccessPolicy::UseStaging { host_memory_type: _, device_memory_type } => {
-                vk::MemoryAllocateInfo::builder()
+                vk::MemoryAllocateInfo::default()
                     .allocation_size(memory_requirements.size)
                     .memory_type_index(device_memory_type as u32)
             }
@@ -165,7 +165,7 @@ impl ResourceManager {
             
 
             self.device.begin_command_buffer(self.command_buffer, 
-                &vk::CommandBufferBeginInfo::builder()
+                &vk::CommandBufferBeginInfo::default()
                 .flags(CommandBufferUsageFlags::ONE_TIME_SUBMIT)).unwrap();
         }
         match self.host_access_policy {
@@ -187,7 +187,7 @@ impl ResourceManager {
                 if let Some(staging) = self.staging_buffer.take() {
                     staging_buffer = staging;
                 } else {
-                    let buffer_create_info = vk::BufferCreateInfo::builder()
+                    let buffer_create_info = vk::BufferCreateInfo::default()
                         .size(size)
                         .usage(vk::BufferUsageFlags::TRANSFER_SRC)
                         .sharing_mode(vk::SharingMode::EXCLUSIVE);
@@ -196,7 +196,7 @@ impl ResourceManager {
 
                     let memory_requirements = unsafe {self.device.get_buffer_memory_requirements(buffer)};
 
-                    let memory_allocate_info = vk::MemoryAllocateInfo::builder()
+                    let memory_allocate_info = vk::MemoryAllocateInfo::default()
                         .allocation_size(memory_requirements.size)
                         .memory_type_index(host_memory_type as u32);
                     
@@ -217,16 +217,16 @@ impl ResourceManager {
                     self.device.unmap_memory(staging_buffer.memory);
                 }
 
-                let copy_region = vk::BufferCopy::builder()
+                let copy_region = vk::BufferCopy::default()
                     .size(size);
 
                 unsafe {
-                    self.device.cmd_copy_buffer(self.command_buffer, staging_buffer.buffer, resource.buffer, &[copy_region.build()]);
+                    self.device.cmd_copy_buffer(self.command_buffer, staging_buffer.buffer, resource.buffer, &[copy_region]);
                     
                 }
 
                 //barrier transfer write to vertex shader read
-                let buffer_memory_barrier = vk::BufferMemoryBarrier::builder()
+                let buffer_memory_barrier = vk::BufferMemoryBarrier::default()
                     .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
                     .dst_access_mask(vk::AccessFlags::VERTEX_ATTRIBUTE_READ)
                     .buffer(resource.buffer)
@@ -240,7 +240,7 @@ impl ResourceManager {
                         vk::PipelineStageFlags::VERTEX_INPUT,
                         vk::DependencyFlags::empty(),
                         &[],
-                        &[buffer_memory_barrier.build()],
+                        &[buffer_memory_barrier],
                         &[],
                     );
                 }
@@ -250,16 +250,16 @@ impl ResourceManager {
         
         unsafe {
             self.device.end_command_buffer(self.command_buffer).unwrap();
-            let submit_info = vk::SubmitInfo::builder()
-                .command_buffers(&[self.command_buffer])
-                .build();
+            let command_buffers = [self.command_buffer];
+            let submit_info = vk::SubmitInfo::default()
+                .command_buffers(&command_buffers);
             self.device.queue_submit(self.queue, &[submit_info], self.transfer_completed_fence).unwrap();
         }
     }
     pub fn cmd_barrier_after_vertex_buffer_use(&mut self, device: &ash::Device, command_buffer: vk::CommandBuffer, vertex_buffer: &BufferResource) {
         match self.host_access_policy {
             HostAccessPolicy::SingleBuffer(_) => {
-                let buffer_memory_barrier = vk::BufferMemoryBarrier::builder()
+                let buffer_memory_barrier = vk::BufferMemoryBarrier::default()
                     .src_access_mask(vk::AccessFlags::VERTEX_ATTRIBUTE_READ)
                     .dst_access_mask(vk::AccessFlags::HOST_WRITE)
                     .buffer(vertex_buffer.buffer)
@@ -273,13 +273,13 @@ impl ResourceManager {
                         vk::PipelineStageFlags::HOST,
                         vk::DependencyFlags::empty(),
                         &[],
-                        &[buffer_memory_barrier.build()],
+                        &[buffer_memory_barrier],
                         &[],
                     );
                 }
             },
             HostAccessPolicy::UseStaging { host_memory_type: _, device_memory_type: _ } => {
-                let buffer_memory_barrier = vk::BufferMemoryBarrier::builder()
+                let buffer_memory_barrier = vk::BufferMemoryBarrier::default()
                     .src_access_mask(vk::AccessFlags::VERTEX_ATTRIBUTE_READ)
                     .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
                     .buffer(vertex_buffer.buffer)
@@ -293,7 +293,7 @@ impl ResourceManager {
                         vk::PipelineStageFlags::TRANSFER,
                         vk::DependencyFlags::empty(),
                         &[],
-                        &[buffer_memory_barrier.build()],
+                        &[buffer_memory_barrier],
                         &[],
                     );
                 }
@@ -303,7 +303,7 @@ impl ResourceManager {
 
 
     pub fn create_image(&mut self, width: u32, height: u32, format: vk::Format, tiling: vk::ImageTiling, usage: vk::ImageUsageFlags) -> ImageResource {
-        let image_create_info = vk::ImageCreateInfo::builder()
+        let image_create_info = vk::ImageCreateInfo::default()
             .image_type(vk::ImageType::TYPE_2D)
             .format(format)
             .extent(vk::Extent3D {
@@ -327,7 +327,7 @@ impl ResourceManager {
             memory_requirements.memory_type_bits & (1 << i) != 0 && memory_type.property_flags.contains(vk::MemoryPropertyFlags::DEVICE_LOCAL)
         }).unwrap();
 
-        let memory_allocate_info = vk::MemoryAllocateInfo::builder()
+        let memory_allocate_info = vk::MemoryAllocateInfo::default()
             .allocation_size(memory_requirements.size)
             .memory_type_index(memory_type_device as u32);
         
@@ -346,7 +346,7 @@ impl ResourceManager {
 
     // TODO: save buffer or free it
     pub fn fill_image(&mut self, imageResource: ImageResource, data: &[u8]) {
-        let buffer_create_info = vk::BufferCreateInfo::builder()
+        let buffer_create_info = vk::BufferCreateInfo::default()
             .size(data.len() as u64)
             .usage(vk::BufferUsageFlags::TRANSFER_SRC)
             .sharing_mode(vk::SharingMode::EXCLUSIVE);
@@ -359,7 +359,7 @@ impl ResourceManager {
             memory_requirements.memory_type_bits & (1 << i) != 0 && memory_type.property_flags.contains(vk::MemoryPropertyFlags::HOST_VISIBLE)
         }).unwrap();
 
-        let memory_allocate_info = vk::MemoryAllocateInfo::builder()
+        let memory_allocate_info = vk::MemoryAllocateInfo::default()
             .allocation_size(memory_requirements.size)
             .memory_type_index(memory_type_host as u32);
         
@@ -374,13 +374,13 @@ impl ResourceManager {
             self.device.unmap_memory(memory);
         }
 
-        let copy_region = vk::BufferImageCopy::builder()
-            .image_subresource(vk::ImageSubresourceLayers::builder()
+        let copy_region = vk::BufferImageCopy::default()
+            .image_subresource(vk::ImageSubresourceLayers::default()
                 .aspect_mask(vk::ImageAspectFlags::COLOR)
                 .mip_level(0)
                 .base_array_layer(0)
                 .layer_count(1)
-                .build())
+                )
             .image_extent(vk::Extent3D {
                 width: imageResource.width,
                 height: imageResource.height,
@@ -388,48 +388,49 @@ impl ResourceManager {
             });
         
         unsafe {
-            self.device.begin_command_buffer(self.command_buffer, &vk::CommandBufferBeginInfo::builder().flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)).unwrap();
+            self.device.begin_command_buffer(self.command_buffer, &vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)).unwrap();
             
             // transition image layout from undefined to transfer destination
-            let image_memory_barrier = vk::ImageMemoryBarrier::builder()
+            let image_memory_barrier = vk::ImageMemoryBarrier::default()
                 .src_access_mask(vk::AccessFlags::empty())
                 .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
                 .old_layout(vk::ImageLayout::UNDEFINED)
                 .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
                 .image(imageResource.image)
-                .subresource_range(vk::ImageSubresourceRange::builder()
+                .subresource_range(vk::ImageSubresourceRange::default()
                     .aspect_mask(vk::ImageAspectFlags::COLOR)
                     .base_mip_level(0)
                     .level_count(1)
                     .base_array_layer(0)
                     .layer_count(1)
-                    .build());
+                    );
 
-            self.device.cmd_pipeline_barrier(self.command_buffer, vk::PipelineStageFlags::TOP_OF_PIPE, vk::PipelineStageFlags::TRANSFER, vk::DependencyFlags::empty(), &[], &[], &[image_memory_barrier.build()]);
+            self.device.cmd_pipeline_barrier(self.command_buffer, vk::PipelineStageFlags::TOP_OF_PIPE, vk::PipelineStageFlags::TRANSFER, vk::DependencyFlags::empty(), &[], &[], &[image_memory_barrier]);
             
-            self.device.cmd_copy_buffer_to_image(self.command_buffer, buffer, imageResource.image, vk::ImageLayout::TRANSFER_DST_OPTIMAL, &[copy_region.build()]);
+            self.device.cmd_copy_buffer_to_image(self.command_buffer, buffer, imageResource.image, vk::ImageLayout::TRANSFER_DST_OPTIMAL, &[copy_region]);
             
             // transition image layout from transfer destination to shader read
-            let image_memory_barrier = vk::ImageMemoryBarrier::builder()
+            let image_memory_barrier = vk::ImageMemoryBarrier::default()
                 .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
                 .dst_access_mask(vk::AccessFlags::SHADER_READ)
                 .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
                 .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
                 .image(imageResource.image)
-                .subresource_range(vk::ImageSubresourceRange::builder()
+                .subresource_range(vk::ImageSubresourceRange::default()
                     .aspect_mask(vk::ImageAspectFlags::COLOR)
                     .base_mip_level(0)
                     .level_count(1)
                     .base_array_layer(0)
                     .layer_count(1)
-                    .build());
+                    );
 
-            self.device.cmd_pipeline_barrier(self.command_buffer, vk::PipelineStageFlags::TRANSFER, vk::PipelineStageFlags::FRAGMENT_SHADER, vk::DependencyFlags::empty(), &[], &[], &[image_memory_barrier.build()]);
+            self.device.cmd_pipeline_barrier(self.command_buffer, vk::PipelineStageFlags::TRANSFER, vk::PipelineStageFlags::FRAGMENT_SHADER, vk::DependencyFlags::empty(), &[], &[], &[image_memory_barrier]);
             
             self.device.end_command_buffer(self.command_buffer).unwrap();
 
-            let submit_info = vk::SubmitInfo::builder()
-                .command_buffers(&[self.command_buffer]).build();
+            let command_buffers = [self.command_buffer];
+            let submit_info = vk::SubmitInfo::default()
+                .command_buffers(&command_buffers);
 
             self.device.queue_submit(self.queue, &[submit_info], vk::Fence::null()).unwrap();
 
@@ -438,23 +439,22 @@ impl ResourceManager {
     }
 
     pub fn create_image_view(&self, image: vk::Image, format: vk::Format, aspect_flags: vk::ImageAspectFlags) -> vk::ImageView {
-        let image_view_create_info = vk::ImageViewCreateInfo::builder()
+        let image_view_create_info = vk::ImageViewCreateInfo::default()
             .image(image)
             .view_type(vk::ImageViewType::TYPE_2D)
             .format(format)
-            .subresource_range(vk::ImageSubresourceRange::builder()
+            .subresource_range(vk::ImageSubresourceRange::default()
                 .aspect_mask(aspect_flags)
                 .base_mip_level(0)
                 .level_count(1)
                 .base_array_layer(0)
-                .layer_count(1)
-                .build());
+                .layer_count(1));
         
         unsafe {self.device.create_image_view(&image_view_create_info, None)}.unwrap()
     }
 
     pub fn create_sampler(&self) -> vk::Sampler {
-        let sampler_create_info = vk::SamplerCreateInfo::builder()
+        let sampler_create_info = vk::SamplerCreateInfo::default()
             .mag_filter(vk::Filter::LINEAR)
             .min_filter(vk::Filter::LINEAR)
             .address_mode_u(vk::SamplerAddressMode::REPEAT)

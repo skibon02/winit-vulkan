@@ -7,7 +7,7 @@ use log::{error, info, warn, debug};
 
 
 pub struct DebugUtilsHelper {
-    debug_utils_h: ash::extensions::ext::DebugUtils,
+    debug_utils_h: ash::ext::debug_utils::Instance,
     debug_utils_messenger_h: vk::DebugUtilsMessengerEXT
 }
 
@@ -40,7 +40,7 @@ unsafe extern "system" fn vulkan_debug_callback(
 impl DebugUtilsHelper {
     pub fn new(entry: &Entry, instance: &Instance) -> anyhow::Result<DebugUtilsHelper> {
 
-        let debug_utils_h = ash::extensions::ext::DebugUtils::new(entry, instance);
+        let debug_utils_h = ash::ext::debug_utils::Instance::new(&entry, &instance);
 
         let debug_utils_messenger_h = unsafe { 
             debug_utils_h.create_debug_utils_messenger(
@@ -53,12 +53,11 @@ impl DebugUtilsHelper {
         })
     }
 
-    pub fn get_messenger_create_info() -> DebugUtilsMessengerCreateInfoEXT {
-        let debug_messenger_create_info = vk::DebugUtilsMessengerCreateInfoEXT::builder()
+    pub fn get_messenger_create_info() -> DebugUtilsMessengerCreateInfoEXT<'static> {
+        let debug_messenger_create_info = vk::DebugUtilsMessengerCreateInfoEXT::default()
             .message_severity(DebugUtilsMessageSeverityFlagsEXT::INFO | DebugUtilsMessageSeverityFlagsEXT::WARNING | DebugUtilsMessageSeverityFlagsEXT::ERROR)
             .message_type(DebugUtilsMessageTypeFlagsEXT::GENERAL | DebugUtilsMessageTypeFlagsEXT::VALIDATION | DebugUtilsMessageTypeFlagsEXT::PERFORMANCE)
-            .pfn_user_callback(Some(vulkan_debug_callback))
-            .build();
+            .pfn_user_callback(Some(vulkan_debug_callback));
         debug_messenger_create_info
     }
 
@@ -92,7 +91,7 @@ impl CapabilitiesChecker {
             .map(|layer| unsafe { CStr::from_ptr(*layer) })
             .collect();
 
-        let supported_layers = entry.enumerate_instance_layer_properties()?;
+        let supported_layers = unsafe { entry.enumerate_instance_layer_properties() }?;
 
         let filtered_layers: Vec<_> = requested_layers.iter().filter(|l| {
             let name: &str = l.to_str().unwrap();
@@ -117,7 +116,7 @@ impl CapabilitiesChecker {
             .map(|ext| unsafe { CStr::from_ptr(*ext) })
             .collect();
 
-        let supported_extensions = entry.enumerate_instance_extension_properties(None)?;
+        let supported_extensions = unsafe { entry.enumerate_instance_extension_properties(None) }?;
 
         let filtered_extensions: Vec<_> = requested_extensions.iter().filter(|e| {
             let name: &str = e.to_str().unwrap();

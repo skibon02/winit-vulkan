@@ -3,9 +3,9 @@ use ash::vk;
 use super::VulkanBackend;
 
 pub struct SwapchainWrapper {
-    swapchain: vk::SwapchainKHR,
-    swapchain_loader: ash::extensions::khr::Swapchain,
-    swapchain_images: Vec<vk::Image>,
+    pub swapchain: vk::SwapchainKHR,
+    pub swapchain_loader: ash::khr::swapchain::Device,
+    pub swapchain_images: Vec<vk::Image>,
     swapchain_image_views: Vec<vk::ImageView>,
     swapchain_format: vk::Format,
     swapchain_extent: vk::Extent2D,
@@ -50,10 +50,9 @@ impl<'a> SwapchainWrapper {
         let swapchain_extent = if surface_capabilities.current_extent.width != u32::MAX {
             surface_capabilities.current_extent
         } else {
-            let mut actual_extent = vk::Extent2D::builder()
+            let mut actual_extent = vk::Extent2D::default()
                 .width(extent.width)
-                .height(extent.height)
-                .build();
+                .height(extent.height);
             actual_extent.width = actual_extent.width.max(surface_capabilities.min_image_extent.width).min(surface_capabilities.max_image_extent.width);
             actual_extent.height = actual_extent.height.max(surface_capabilities.min_image_extent.height).min(surface_capabilities.max_image_extent.height);
             actual_extent
@@ -61,8 +60,8 @@ impl<'a> SwapchainWrapper {
 
         let image_count = surface_capabilities.min_image_count + 1;
 
-        let swapchain_loader = ash::extensions::khr::Swapchain::new(&vulkan_backend.instance, device);
-        let swapchain_create_info = vk::SwapchainCreateInfoKHR::builder()
+        let swapchain_loader = ash::khr::swapchain::Device::new(&vulkan_backend.instance, device);
+        let swapchain_create_info = vk::SwapchainCreateInfoKHR::default()
             .surface(vulkan_backend.surface)
             .min_image_count(image_count)
             .image_color_space(surface_format.color_space)
@@ -74,38 +73,34 @@ impl<'a> SwapchainWrapper {
             .pre_transform(surface_capabilities.current_transform)
             .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
             .present_mode(*present_mode)
-            .clipped(true)
-            .build();
+            .clipped(true);
 
         let swapchain = unsafe { swapchain_loader.create_swapchain(&swapchain_create_info, None).unwrap() };
         let swapchain_images = unsafe { swapchain_loader.get_swapchain_images(swapchain).unwrap() };
 
         let swapchain_image_views = swapchain_images.iter().map(|image| {
-            let image_view_create_info = vk::ImageViewCreateInfo::builder()
+            let image_view_create_info = vk::ImageViewCreateInfo::default()
                 .image(*image)
                 .view_type(vk::ImageViewType::TYPE_2D)
                 .format(surface_format.format)
-                .components(vk::ComponentMapping::builder()
+                .components(vk::ComponentMapping::default()
                     .r(vk::ComponentSwizzle::IDENTITY)
                     .g(vk::ComponentSwizzle::IDENTITY)
                     .b(vk::ComponentSwizzle::IDENTITY)
-                    .a(vk::ComponentSwizzle::IDENTITY)
-                    .build())
-                .subresource_range(vk::ImageSubresourceRange::builder()
+                    .a(vk::ComponentSwizzle::IDENTITY))
+                .subresource_range(vk::ImageSubresourceRange::default()
                     .aspect_mask(vk::ImageAspectFlags::COLOR)
                     .base_mip_level(0)
                     .level_count(1)
                     .base_array_layer(0)
-                    .layer_count(1)
-                    .build())
-                .build();
+                    .layer_count(1));
             unsafe { device.create_image_view(&image_view_create_info, None).unwrap() }
         }).collect::<Vec<_>>();
 
         // swapchain and image views are created
 
         let render_pass = {
-            let color_attachments = [vk::AttachmentDescription::builder()
+            let color_attachments = [vk::AttachmentDescription::default()
                 .format(surface_format.format)
                 .samples(vk::SampleCountFlags::TYPE_1)
                 .load_op(vk::AttachmentLoadOp::CLEAR)
@@ -113,40 +108,36 @@ impl<'a> SwapchainWrapper {
                 .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
                 .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
                 .initial_layout(vk::ImageLayout::UNDEFINED)
-                .final_layout(vk::ImageLayout::PRESENT_SRC_KHR)
-                .build()];
-            let color_attachment_refs = [vk::AttachmentReference::builder()
+                .final_layout(vk::ImageLayout::PRESENT_SRC_KHR)];
+            let color_attachment_refs = [vk::AttachmentReference::default()
                 .attachment(0)
-                .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-                .build()];
-            let subpasses = [vk::SubpassDescription::builder()
+                .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)];
+            let subpasses = [vk::SubpassDescription::default()
                 .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
-                .color_attachments(&color_attachment_refs)
-                .build()];
-            let dependencies = [vk::SubpassDependency::builder()
+                .color_attachments(&color_attachment_refs)];
+            let dependencies = [vk::SubpassDependency::default()
                 .src_subpass(vk::SUBPASS_EXTERNAL)
                 .dst_subpass(0)
                 .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
                 .src_access_mask(vk::AccessFlags::empty())
                 .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
-                .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_READ | vk::AccessFlags::COLOR_ATTACHMENT_WRITE)
-                .build()];
-            let render_pass_create_info = vk::RenderPassCreateInfo::builder()
+                .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_READ | vk::AccessFlags::COLOR_ATTACHMENT_WRITE)];
+            let render_pass_create_info = vk::RenderPassCreateInfo::default()
                 .attachments(&color_attachments)
                 .subpasses(&subpasses)
-                .dependencies(&dependencies)
-                .build();
+                .dependencies(&dependencies);
             unsafe { device.create_render_pass(&render_pass_create_info, None).unwrap() }
         };
 
         let framebuffers = swapchain_image_views.iter().map(|image_view| {
-            let framebuffer_create_info = vk::FramebufferCreateInfo::builder()
+            let attachments = [*image_view];
+
+            let framebuffer_create_info = vk::FramebufferCreateInfo::default()
                 .render_pass(render_pass)
-                .attachments(&[*image_view])
+                .attachments(&attachments)
                 .width(swapchain_extent.width)
                 .height(swapchain_extent.height)
-                .layers(1)
-                .build();
+                .layers(1);
             unsafe { device.create_framebuffer(&framebuffer_create_info, None).unwrap() }
         }).collect::<Vec<_>>();
         
