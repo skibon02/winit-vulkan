@@ -1,5 +1,5 @@
 use ash::vk;
-
+use ash::vk::Extent2D;
 use super::VulkanBackend;
 
 pub struct SwapchainWrapper {
@@ -8,10 +8,10 @@ pub struct SwapchainWrapper {
     pub swapchain_images: Vec<vk::Image>,
     swapchain_image_views: Vec<vk::ImageView>,
     swapchain_format: vk::Format,
-    swapchain_extent: vk::Extent2D,
+    pub swapchain_extent: vk::Extent2D,
 
-    render_pass: vk::RenderPass,
-    framebuffers: Vec<vk::Framebuffer>,
+    pub render_pass: vk::RenderPass,
+    pub framebuffers: Vec<vk::Framebuffer>,
 
     device: ash::Device,
 }
@@ -43,7 +43,10 @@ impl<'a> SwapchainWrapper {
                 surface_present_modes.first().unwrap()
             })
         });
-        println!("Present mode: {:?}", present_mode);
+
+        // 1 additional image, so we can acquire 2 images at a time.
+        let image_count = surface_capabilities.min_image_count + 1;
+        println!("\tCreating swapchain...\nPresent mode: {:?}\nSwapchain image count: {:?}, Color space: {:?}, Image formate: {:?}\n", present_mode, image_count, surface_format.color_space, surface_format.format);
 
         let extent = vulkan_backend.surface_resolution;
 
@@ -58,7 +61,6 @@ impl<'a> SwapchainWrapper {
             actual_extent
         };
 
-        let image_count = surface_capabilities.min_image_count + 1;
 
         let swapchain_loader = ash::khr::swapchain::Device::new(&vulkan_backend.instance, device);
         let swapchain_create_info = vk::SwapchainCreateInfoKHR::default()

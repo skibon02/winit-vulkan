@@ -8,9 +8,11 @@ use anyhow::Context;
 use jni::JavaVM;
 use jni::objects::{JObject, JObjectArray, JValue};
 use log::{error, info, warn};
-use winit::{event::{Event, WindowEvent}, event_loop::{EventLoop}, event_loop};
+use winit::{event::{Event, WindowEvent}, event_loop::{EventLoop}, event_loop, keyboard};
 use winit::application::ApplicationHandler;
+use winit::event::{DeviceEvent, DeviceId};
 use winit::event_loop::{ActiveEventLoop, EventLoopBuilder};
+use winit::keyboard::NamedKey;
 use winit::window::{Window, WindowAttributes, WindowId};
 
 
@@ -31,7 +33,7 @@ fn android_main(app: AndroidApp) {
     use winit::platform::android::EventLoopBuilderExtAndroid;
 
     android_logger::init_once(
-        android_logger::Config::default().with_max_level(log::LevelFilter::Trace),
+        android_logger::Config::default().with_max_level(log::LevelFilter::Info),
     );
 
     let vm = unsafe { JavaVM::from_raw(app.vm_as_ptr() as _) }.unwrap();
@@ -137,7 +139,7 @@ pub struct App {
     event_sender: Sender<RendererMessage>,
     main_window_id: WindowId,
     app_finished: bool,
-    prev_touch_event_time: Instant
+    prev_touch_event_time: Instant,
 }
 
 pub enum AppResult {
@@ -164,7 +166,7 @@ impl App {
             info!("Thread started!");
             #[cfg(target_os = "android")]
             {
-                info!("Waiting for event...");
+                info!("Waiting for Resumed android event...");
                 loop {
                     let msg = rx.recv().unwrap();
                     match msg {
@@ -177,18 +179,26 @@ impl App {
                 }
             }
             //set thread name
-            let mut app = VulkanBackend::new(window).unwrap();
-            app.init_swapchain().context("Swapchain initialization").unwrap();
+            let mut vulkan_backend = VulkanBackend::new(&window).unwrap();
 
+            let mut frame_cnt = 0;
+            let mut last_sec = Instant::now();
             loop {
                 let message = rx.recv().unwrap();
-                info!("Received message: {:?}", message);
+                // info!("Received message: {:?}", message);
                 // println!("On thread {:?}", std::thread::current().id());
 
                 match message {
                     RendererMessage::RedrawRequested => {
-                        info!("Redraw requested");
-                        app.render().unwrap();
+                        vulkan_backend.render().unwrap();
+
+                        frame_cnt += 1;
+                        if last_sec.elapsed().as_secs() >= 1 {
+                            info!("FPS: {frame_cnt}");
+                            frame_cnt = 0;
+                            last_sec = Instant::now();
+                        }
+                        window.request_redraw();
                     }
                     _ => {
 
@@ -197,10 +207,12 @@ impl App {
 
                 if is_exiting.load(Ordering::Relaxed) {
                     info!("[app] exit requested...");
-                    thread::sleep(Duration::from_secs(1));
+                    // thread::sleep(Duration::from_secs(1));
                     break;
                 }
             }
+
+            vulkan_backend.wait_idle();
         }).unwrap();
 
         Self {
@@ -209,7 +221,7 @@ impl App {
             event_sender: tx,
             main_window_id,
             app_finished: false,
-            prev_touch_event_time: Instant::now()
+            prev_touch_event_time: Instant::now(),
         }
     }
 
@@ -218,9 +230,16 @@ impl App {
     }
 
     pub fn handle_event(&mut self, event_loop: &ActiveEventLoop, evt: WindowEvent) -> anyhow::Result<()> {
-        info!("new window event: {:?}", evt);
         match &evt {
-            WindowEvent::CloseRequested  => {
+            WindowEvent::CloseRequested |
+            WindowEvent::KeyboardInput {
+                event: winit::event::KeyEvent {
+                    logical_key: keyboard::Key::Named(NamedKey::GoBack | NamedKey::BrowserBack),
+                    state: winit::event::ElementState::Pressed,
+                    ..
+                },
+                ..
+            }=> {
                 info!("Close requested...");
                 self.is_exiting.store(true, Ordering::Relaxed);
                 self.event_sender.send(RendererMessage::Exiting).unwrap();
@@ -239,10 +258,12 @@ impl App {
             },
 
             WindowEvent::RedrawRequested => {
-                self.event_sender.send(RendererMessage::RedrawRequested).unwrap();
+                if !self.app_finished {
+                    self.event_sender.send(RendererMessage::RedrawRequested).unwrap();
+                }
             }
 
-            _ => (),
+            _ => info!("new window event: {:?}", evt),
         }
 
         Ok(())

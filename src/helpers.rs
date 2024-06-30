@@ -38,6 +38,7 @@ unsafe extern "system" fn vulkan_debug_callback(
 }
 
 impl DebugUtilsHelper {
+    /// May be used AFTER instance is created
     pub fn new(entry: &Entry, instance: &Instance) -> anyhow::Result<DebugUtilsHelper> {
 
         let debug_utils_h = ash::ext::debug_utils::Instance::new(&entry, &instance);
@@ -53,6 +54,7 @@ impl DebugUtilsHelper {
         })
     }
 
+    /// May be used during instance creation
     pub fn get_messenger_create_info() -> DebugUtilsMessengerCreateInfoEXT<'static> {
         let debug_messenger_create_info = vk::DebugUtilsMessengerCreateInfoEXT::default()
             .message_severity(DebugUtilsMessageSeverityFlagsEXT::INFO | DebugUtilsMessageSeverityFlagsEXT::WARNING | DebugUtilsMessageSeverityFlagsEXT::ERROR)
@@ -85,7 +87,6 @@ impl CapabilitiesChecker {
     }
 
     pub fn create_instance(&mut self, entry: &ash::Entry, create_info: &mut vk::InstanceCreateInfo) -> anyhow::Result<ash::Instance> {
-
         let requested_layers = unsafe {slice::from_raw_parts(create_info.pp_enabled_layer_names, create_info.enabled_layer_count as usize)};
         let requested_layers: Vec<_> = requested_layers.iter()
             .map(|layer| unsafe { CStr::from_ptr(*layer) })
