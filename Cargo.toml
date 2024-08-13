@@ -12,16 +12,21 @@ crate-type=["cdylib", "rlib"]
 name = "winit-vulkan"
 
 [dependencies]
-anyhow = { version = "1.0.72", features = ["backtrace"] }
-ash = { version = "0.38.0", features = ["linked"] }
-console-subscriber = "0.3.0"
-futures = "0.3.28"
-jni = "0.21.1"
 log = "0.4.19"
 simple_logger = { version = "5.0.0", default-features = false, features = ["colors", "timestamps"] }
-thiserror = "1.0.44"
-tokio = { version = "1.29.1", features = ["full", "tracing"] }
+
+# system
 winit = { version = "0.30.3", features = ["android-native-activity", "x11", "rwh_06"], default-features = false }
+ash = { version = "0.38.0", features = ["linked"] }
+jni = "0.21.1"
+
+# async
+futures = "0.3.28"
+tokio = { version = "1.29.1", features = ["full", "tracing"] }
+
+# errors
+anyhow = { version = "1.0.72", features = ["backtrace"] }
+thiserror = "1.0.44"
 
 android_logger = { version = "0.14.1", optional = true }
 ash-window = "0.13.0"

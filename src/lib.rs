@@ -162,6 +162,7 @@ impl App {
 
         let is_exiting_clone = is_exiting.clone();
 
+        let mut vulkan_backend = VulkanBackend::new(&window).unwrap();
         let jh = thread::Builder::new().name("vulkan_thread".to_string()).spawn(move || {
             info!("Thread started!");
             #[cfg(target_os = "android")]
@@ -178,8 +179,6 @@ impl App {
                     }
                 }
             }
-            //set thread name
-            let mut vulkan_backend = VulkanBackend::new(&window).unwrap();
 
             let mut frame_cnt = 0;
             let mut last_sec = Instant::now();

@@ -1,5 +1,6 @@
 use ash::vk;
 use ash::vk::Extent2D;
+use log::info;
 use super::VulkanBackend;
 
 pub struct SwapchainWrapper {
@@ -46,7 +47,7 @@ impl<'a> SwapchainWrapper {
 
         // 1 additional image, so we can acquire 2 images at a time.
         let image_count = surface_capabilities.min_image_count + 1;
-        println!("\tCreating swapchain...\nPresent mode: {:?}\nSwapchain image count: {:?}, Color space: {:?}, Image formate: {:?}\n", present_mode, image_count, surface_format.color_space, surface_format.format);
+        info!("\tCreating swapchain...\nPresent mode: {:?}\nSwapchain image count: {:?}, Color space: {:?}, Image formate: {:?}\n", present_mode, image_count, surface_format.color_space, surface_format.format);
 
         let extent = vulkan_backend.surface_resolution;
 

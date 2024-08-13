@@ -58,12 +58,14 @@ pub struct VulkanBackend {
 }
 
 impl VulkanBackend {
-    // Initialize vulkan resources and use window to create surface
+    /// Initialize vulkan resources and use window to create surface
+    ///
+    /// Must be called from main thread!
     pub fn new(window: &Window) -> anyhow::Result<Self> {
         // we need window_handle to create Vulkan surface
-        let window_handle = window.raw_window_handle().unwrap();
+        let window_handle = window.raw_window_handle()?;
         // we need display_handle to get required extensions
-        let display_handle = window.raw_display_handle().unwrap();
+        let display_handle = window.raw_display_handle()?;
         let window_size = window.inner_size();
         info!("Vulkan init started! Got window with dimensions: {:?}", window_size);
 
@@ -140,7 +142,7 @@ impl VulkanBackend {
         //select chosen physical device
         let dev_name_array = unsafe { instance.get_physical_device_properties(physical_device).device_name };
         let dev_name = unsafe {std::ffi::CStr::from_ptr(dev_name_array.as_ptr())};
-        println!("Chosen device: {}", dev_name.to_str().unwrap());
+        info!("Chosen device: {}", dev_name.to_str().unwrap());
 
 
         let queue_family_properties = unsafe { instance.get_physical_device_queue_family_properties(physical_device) };
