@@ -96,8 +96,7 @@ impl ApplicationHandler for WinitApp {
         info!("\t\t*** APP RESUMED ***");
         let window = event_loop.create_window(WindowAttributes::default().with_title("Winit hello!")).unwrap();
 
-        let mut app = App::new_winit(window);
-        app.send_resumed();
+        let app = App::new_winit(window);
         self.app = Some(app);
     }
 
@@ -128,11 +127,14 @@ impl ApplicationHandler for WinitApp {
 
 
 pub struct App {
-    jh: Option<thread::JoinHandle<()>>,
-    is_exiting: Arc<AtomicBool>,
-    event_sender: Sender<RendererMessage>,
     app_finished: bool,
     prev_touch_event_time: Instant,
+
+    vulkan_backend: VulkanBackend,
+    window: Window,
+
+    frame_cnt: i32,
+    last_sec: Instant,
 }
 
 pub enum AppResult {
@@ -150,69 +152,17 @@ enum RendererMessage {
 impl App {
     pub fn new_winit(window: Window) -> App {
 
-        let is_exiting = Arc::new(AtomicBool::new(false));
-        let (tx, rx) = std::sync::mpsc::channel();
-
-        let is_exiting_clone = is_exiting.clone();
-
         let mut vulkan_backend = VulkanBackend::new(&window).unwrap();
-        let jh = thread::Builder::new().name("vulkan_thread".to_string()).spawn(move || {
-            info!("Thread started!");
-            #[cfg(target_os = "android")]
-            {
-                info!("Waiting for Resumed android event...");
-                loop {
-                    let msg = rx.recv().unwrap();
-                    match msg {
-                        RendererMessage::Resumed => {
-                            info!("Received RESUMED signal!");
-                            break;
-                        }
-                        _ => {}
-                    }
-                }
-            }
-
-            let mut frame_cnt = 0;
-            let mut last_sec = Instant::now();
-            loop {
-                let message = rx.recv().unwrap();
-                // info!("Received message: {:?}", message);
-                // println!("On thread {:?}", std::thread::current().id());
-
-                match message {
-                    RendererMessage::RedrawRequested => {
-                        vulkan_backend.render().unwrap();
-
-                        frame_cnt += 1;
-                        if last_sec.elapsed().as_secs() >= 1 {
-                            info!("FPS: {frame_cnt}");
-                            frame_cnt = 0;
-                            last_sec = Instant::now();
-                        }
-                        window.request_redraw();
-                    }
-                    _ => {
-
-                    }
-                }
-
-                if is_exiting.load(Ordering::Relaxed) {
-                    info!("[app] exit requested...");
-                    // thread::sleep(Duration::from_secs(1));
-                    break;
-                }
-            }
-
-            vulkan_backend.wait_idle();
-        }).unwrap();
 
         Self {
-            jh: Some(jh),
-            is_exiting: is_exiting_clone,
-            event_sender: tx,
             app_finished: false,
             prev_touch_event_time: Instant::now(),
+
+            vulkan_backend,
+            window,
+
+            last_sec: Instant::now(),
+            frame_cnt: 0
         }
     }
 
@@ -232,10 +182,7 @@ impl App {
                 ..
             }=> {
                 info!("Close requested...");
-                self.is_exiting.store(true, Ordering::Relaxed);
-                self.event_sender.send(RendererMessage::Exiting).unwrap();
-                self.jh.take().unwrap().join().unwrap();
-                info!("Main thread joined!");
+                self.vulkan_backend.wait_idle();
                 self.app_finished = true;
             },
 
@@ -250,7 +197,15 @@ impl App {
 
             WindowEvent::RedrawRequested => {
                 if !self.app_finished {
-                    self.event_sender.send(RendererMessage::RedrawRequested).unwrap();
+                    self.vulkan_backend.render().unwrap();
+
+                    self.frame_cnt += 1;
+                    if self.last_sec.elapsed().as_secs() >= 1 {
+                        info!("FPS: {}", self.frame_cnt);
+                        self.frame_cnt = 0;
+                        self.last_sec = Instant::now();
+                    }
+                    self.window.request_redraw();
                 }
             }
 
@@ -260,7 +215,4 @@ impl App {
         Ok(())
     }
 
-    pub fn send_resumed(&mut self) {
-        self.event_sender.send(RendererMessage::Resumed).unwrap();
-    }
 }
