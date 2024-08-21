@@ -1,5 +1,4 @@
 use ash::vk;
-use ash::vk::Extent2D;
 use log::info;
 use super::VulkanBackend;
 

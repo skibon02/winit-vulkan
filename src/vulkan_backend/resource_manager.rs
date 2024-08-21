@@ -55,7 +55,7 @@ impl ResourceManager {
             if memory_type.property_flags.contains( vk::MemoryPropertyFlags::DEVICE_LOCAL | vk::MemoryPropertyFlags::HOST_COHERENT) {
                 return true;
             }
-            return false;
+            false
         });
         
 
@@ -70,7 +70,7 @@ impl ResourceManager {
                     if memory_type.property_flags.contains( vk::MemoryPropertyFlags::HOST_COHERENT ) {
                         return true;
                     }
-                    return false;
+                    false
                 });
 
                 let device_memory_type = memory_properties.memory_types.iter().enumerate().find(|(i, memory_type)| {
@@ -80,7 +80,7 @@ impl ResourceManager {
                     if memory_type.property_flags.contains( vk::MemoryPropertyFlags::DEVICE_LOCAL ) {
                         return true;
                     }
-                    return false;
+                    false
                 });
                 
                 match (host_visible_memory_type, device_memory_type) {
@@ -109,7 +109,7 @@ impl ResourceManager {
             staging_buffer: None,
             transfer_completed_fence: fence,
 
-            memory_types: memory_properties.memory_types.iter().map(|x| *x).collect(),
+            memory_types: memory_properties.memory_types.to_vec(),
         }
     }
 
@@ -155,7 +155,7 @@ impl ResourceManager {
 
     pub fn fill_buffer<T: Copy + Debug>(&mut self, resource: BufferResource, data: &[T]) {
         //size checktransfer_completed_fence
-        let size = (data.len() * std::mem::size_of::<T>()) as vk::DeviceSize;
+        let size = std::mem::size_of_val(data) as vk::DeviceSize;
         assert!(size <= resource.size);
 
 
@@ -345,7 +345,7 @@ impl ResourceManager {
     }
 
     // TODO: save buffer or free it
-    pub fn fill_image(&mut self, imageResource: ImageResource, data: &[u8]) {
+    pub fn fill_image(&mut self, image_resource: ImageResource, data: &[u8]) {
         let buffer_create_info = vk::BufferCreateInfo::default()
             .size(data.len() as u64)
             .usage(vk::BufferUsageFlags::TRANSFER_SRC)
@@ -382,8 +382,8 @@ impl ResourceManager {
                 .layer_count(1)
                 )
             .image_extent(vk::Extent3D {
-                width: imageResource.width,
-                height: imageResource.height,
+                width: image_resource.width,
+                height: image_resource.height,
                 depth: 1,
             });
         
@@ -396,7 +396,7 @@ impl ResourceManager {
                 .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
                 .old_layout(vk::ImageLayout::UNDEFINED)
                 .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
-                .image(imageResource.image)
+                .image(image_resource.image)
                 .subresource_range(vk::ImageSubresourceRange::default()
                     .aspect_mask(vk::ImageAspectFlags::COLOR)
                     .base_mip_level(0)
@@ -407,7 +407,7 @@ impl ResourceManager {
 
             self.device.cmd_pipeline_barrier(self.command_buffer, vk::PipelineStageFlags::TOP_OF_PIPE, vk::PipelineStageFlags::TRANSFER, vk::DependencyFlags::empty(), &[], &[], &[image_memory_barrier]);
             
-            self.device.cmd_copy_buffer_to_image(self.command_buffer, buffer, imageResource.image, vk::ImageLayout::TRANSFER_DST_OPTIMAL, &[copy_region]);
+            self.device.cmd_copy_buffer_to_image(self.command_buffer, buffer, image_resource.image, vk::ImageLayout::TRANSFER_DST_OPTIMAL, &[copy_region]);
             
             // transition image layout from transfer destination to shader read
             let image_memory_barrier = vk::ImageMemoryBarrier::default()
@@ -415,7 +415,7 @@ impl ResourceManager {
                 .dst_access_mask(vk::AccessFlags::SHADER_READ)
                 .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
                 .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-                .image(imageResource.image)
+                .image(image_resource.image)
                 .subresource_range(vk::ImageSubresourceRange::default()
                     .aspect_mask(vk::ImageAspectFlags::COLOR)
                     .base_mip_level(0)

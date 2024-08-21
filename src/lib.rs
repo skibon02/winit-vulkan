@@ -1,19 +1,11 @@
 pub mod vulkan_backend;
 
 use std::fmt::Debug;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::Sender;
-use std::thread;
-use std::time::{Duration, Instant};
-use anyhow::Context;
-use jni::JavaVM;
-use jni::objects::{JObject, JObjectArray, JValue};
-use log::{error, info, warn};
-use winit::{event::{Event, WindowEvent}, event_loop, event_loop::EventLoop, keyboard};
+use std::time::Instant;
+use log::{error, info};
+use winit::{event::WindowEvent, event_loop::EventLoop, keyboard};
 use winit::application::ApplicationHandler;
-use winit::event::{DeviceEvent, DeviceId};
-use winit::event_loop::{ActiveEventLoop, EventLoopBuilder};
+use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::NamedKey;
 use winit::window::{Window, WindowAttributes, WindowId};
 
@@ -142,17 +134,10 @@ pub enum AppResult {
     Exit
 }
 
-#[derive(Debug)]
-enum RendererMessage {
-    Resumed,
-    RedrawRequested,
-    Exiting
-}
-
 impl App {
     pub fn new_winit(window: Window) -> App {
 
-        let mut vulkan_backend = VulkanBackend::new(&window).unwrap();
+        let vulkan_backend = VulkanBackend::new(&window).unwrap();
 
         Self {
             app_finished: false,

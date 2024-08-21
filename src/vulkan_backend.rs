@@ -21,11 +21,9 @@ use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
 use ash::{Device, Entry, Instance};
-use ash::vk::{self, make_api_version, ApplicationInfo, CommandBuffer, CommandBufferBeginInfo, CommandBufferUsageFlags, FenceCreateFlags, Queue, RenderPassBeginInfo, Semaphore, SurfaceKHR};
+use ash::vk::{self, make_api_version, ApplicationInfo, CommandBuffer, CommandBufferBeginInfo, FenceCreateFlags, Queue, RenderPassBeginInfo, Semaphore, SurfaceKHR};
 
 use std::ffi::{c_char, CString};
-use std::marker::PhantomData;
-use std::ptr;
 use ash_window::create_surface;
 use winit::raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use crate::vulkan_backend::helpers::{CapabilitiesChecker, DebugUtilsHelper};
@@ -303,6 +301,9 @@ impl VulkanBackend {
         unsafe {
             match swapchain_wrapper.swapchain_loader.queue_present(self.queue, &present_info) {
                 Ok(r) => {
+                    if !r {
+                        warn!("Surface suboptimal!");
+                    }
                 }
                 Err(e) => {
                     error!("queue_present: {}", e);

@@ -41,7 +41,7 @@ impl DebugUtilsHelper {
     /// May be used AFTER instance is created
     pub fn new(entry: &Entry, instance: &Instance) -> anyhow::Result<DebugUtilsHelper> {
 
-        let debug_utils_h = ash::ext::debug_utils::Instance::new(&entry, &instance);
+        let debug_utils_h = ash::ext::debug_utils::Instance::new(entry, instance);
 
         let debug_utils_messenger_h = unsafe { 
             debug_utils_h.create_debug_utils_messenger(
