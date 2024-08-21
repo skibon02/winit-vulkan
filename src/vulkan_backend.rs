@@ -85,7 +85,7 @@ impl VulkanBackend {
         //define desired layers
         // 1. Khronos validation layers (optional)
         let mut instance_layers = vec![];
-        if cfg!(debug_assertions) {
+        if cfg!(feature="validation_layers") {
             instance_layers.push(CString::new("VK_LAYER_KHRONOS_validation")?);
         }
         let instance_layers_refs: Vec<*const c_char> = instance_layers.iter().map(|l| l.as_ptr())

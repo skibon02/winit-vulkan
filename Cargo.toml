@@ -32,5 +32,6 @@ android_logger = { version = "0.14.1", optional = true }
 ash-window = "0.13.0"
 
 [features]
-default = []
+default = ["validation_layers"]
 android = ["dep:android_logger"]
+validation_layers = []
