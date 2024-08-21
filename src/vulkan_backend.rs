@@ -300,9 +300,9 @@ impl VulkanBackend {
 
         unsafe {
             match swapchain_wrapper.swapchain_loader.queue_present(self.queue, &present_info) {
-                Ok(r) => {
-                    if !r {
-                        warn!("Surface suboptimal!");
+                Ok(is_suboptimal) => {
+                    if is_suboptimal {
+                        warn!("swapchain suboptimal!");
                     }
                 }
                 Err(e) => {
