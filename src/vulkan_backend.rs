@@ -10,34 +10,35 @@ pub mod pipeline {
 }
 
 pub mod swapchain_wrapper;
+pub mod helpers;
+pub mod resource_manager;
 
-
-use crate::helpers::{self, DebugUtilsHelper, CapabilitiesChecker};
 use crate::vulkan_backend::swapchain_wrapper::SwapchainWrapper;
 
 use anyhow::Context;
 use log::{error, info, warn};
-use winit::dpi::{PhysicalSize};
+use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
-use ash::{Entry, Instance, Device};
-use ash::vk::{self, make_api_version, ApplicationInfo, SurfaceKHR, Queue, Semaphore, FenceCreateFlags, CommandBufferBeginInfo, CommandBufferUsageFlags, CommandBuffer, RenderPassBeginInfo};
+use ash::{Device, Entry, Instance};
+use ash::vk::{self, make_api_version, ApplicationInfo, CommandBuffer, CommandBufferBeginInfo, CommandBufferUsageFlags, FenceCreateFlags, Queue, RenderPassBeginInfo, Semaphore, SurfaceKHR};
 
 use std::ffi::{c_char, CString};
 use std::marker::PhantomData;
 use std::ptr;
 use ash_window::create_surface;
 use winit::raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
-
+use crate::vulkan_backend::helpers::{CapabilitiesChecker, DebugUtilsHelper};
 
 pub struct VulkanBackend {
     entry: Entry,
     instance: Instance,
-    surface_loader: ash::khr::surface::Instance,
 
+    debug_utils: DebugUtilsHelper,
+
+    surface_loader: ash::khr::surface::Instance,
     surface: SurfaceKHR,
     surface_resolution: PhysicalSize<u32>,
-    debug_utils: DebugUtilsHelper,
 
     capabilities_checker: CapabilitiesChecker,
     physical_device: vk::PhysicalDevice,
@@ -99,12 +100,12 @@ impl VulkanBackend {
         instance_extensions.push(ash::ext::debug_utils::NAME.as_ptr());
 
 
-        let mut debug_utils_messanger_info = DebugUtilsHelper::get_messenger_create_info();
+        let mut debug_utils_messenger_info = DebugUtilsHelper::get_messenger_create_info();
         let mut create_info = vk::InstanceCreateInfo::default()
             .application_info(&app_info)
             .enabled_layer_names(&instance_layers_refs)
             .enabled_extension_names(&instance_extensions)
-            .push_next(&mut debug_utils_messanger_info);
+            .push_next(&mut debug_utils_messenger_info);
 
         let mut caps_checker = CapabilitiesChecker::new();
 

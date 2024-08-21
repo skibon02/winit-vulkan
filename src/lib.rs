@@ -1,3 +1,5 @@
+pub mod vulkan_backend;
+
 use std::fmt::Debug;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -8,24 +10,16 @@ use anyhow::Context;
 use jni::JavaVM;
 use jni::objects::{JObject, JObjectArray, JValue};
 use log::{error, info, warn};
-use winit::{event::{Event, WindowEvent}, event_loop::{EventLoop}, event_loop, keyboard};
+use winit::{event::{Event, WindowEvent}, event_loop, event_loop::EventLoop, keyboard};
 use winit::application::ApplicationHandler;
 use winit::event::{DeviceEvent, DeviceId};
 use winit::event_loop::{ActiveEventLoop, EventLoopBuilder};
 use winit::keyboard::NamedKey;
 use winit::window::{Window, WindowAttributes, WindowId};
 
-
-pub mod helpers;
-
-pub mod vulkan_backend;
-use vulkan_backend::VulkanBackend;
-
-pub mod resource_manager;
-
 #[cfg(target_os = "android")]
 use winit::platform::android::activity::*;
-
+use crate::vulkan_backend::VulkanBackend;
 
 #[cfg(target_os = "android")]
 #[no_mangle]
@@ -80,6 +74,11 @@ fn android_main(app: AndroidApp) {
     run(event_loop);
 }
 
+pub fn run(event_loop: EventLoop<()>) {
+    let mut winit_app = WinitApp::new();
+    event_loop.run_app(&mut winit_app).unwrap();
+}
+
 struct WinitApp {
     app: Option<App>
 }
@@ -96,12 +95,12 @@ impl ApplicationHandler for WinitApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         info!("\t\t*** APP RESUMED ***");
         let window = event_loop.create_window(WindowAttributes::default().with_title("Winit hello!")).unwrap();
-        let main_window_id = window.id();
 
-        let mut app = App::new_winit(window, main_window_id);
+        let mut app = App::new_winit(window);
         app.send_resumed();
         self.app = Some(app);
     }
+
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: WindowId, event: WindowEvent) {
         if self.app.as_mut().unwrap().is_finished() {
@@ -127,17 +126,11 @@ impl ApplicationHandler for WinitApp {
     }
 }
 
-pub fn run(event_loop: EventLoop<()>) {
-    let mut winit_app = WinitApp::new();
-    event_loop.run_app(&mut winit_app).unwrap();
-}
-
 
 pub struct App {
     jh: Option<thread::JoinHandle<()>>,
     is_exiting: Arc<AtomicBool>,
     event_sender: Sender<RendererMessage>,
-    main_window_id: WindowId,
     app_finished: bool,
     prev_touch_event_time: Instant,
 }
@@ -155,7 +148,7 @@ enum RendererMessage {
 }
 
 impl App {
-    pub fn new_winit(window: Window, main_window_id: WindowId) -> App {
+    pub fn new_winit(window: Window) -> App {
 
         let is_exiting = Arc::new(AtomicBool::new(false));
         let (tx, rx) = std::sync::mpsc::channel();
@@ -218,7 +211,6 @@ impl App {
             jh: Some(jh),
             is_exiting: is_exiting_clone,
             event_sender: tx,
-            main_window_id,
             app_finished: false,
             prev_touch_event_time: Instant::now(),
         }
