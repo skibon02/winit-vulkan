@@ -105,6 +105,7 @@ impl ApplicationHandler for WinitApp {
 
     fn exiting(&mut self, event_loop: &ActiveEventLoop) {
         info!("\t\t*** APP EXITING ***");
+        sparkles::finalize();
     }
     //
     // fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
@@ -181,16 +182,22 @@ impl App {
             },
 
             WindowEvent::RedrawRequested => {
+                sparkles_macro::tracing_event!("Redraw requested");
                 if !self.app_finished {
                     self.vulkan_backend.render().unwrap();
 
                     self.frame_cnt += 1;
                     if self.last_sec.elapsed().as_secs() >= 1 {
+                        sparkles_macro::tracing_event!("New sec!");
+                        sparkles::flush_thread_local();
+
                         info!("FPS: {}", self.frame_cnt);
                         self.frame_cnt = 0;
                         self.last_sec = Instant::now();
                     }
+                    sparkles_macro::tracing_event!("window.request_redraw call");
                     self.window.request_redraw();
+                    sparkles_macro::tracing_event!("window.request_redraw call finish");
                 }
             }
 

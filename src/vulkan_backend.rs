@@ -237,8 +237,10 @@ impl VulkanBackend {
         let swapchain_wrapper = self.swapchain_wrapper.as_mut().unwrap();
 
         // 1) Acquire next image
+        sparkles_macro::tracing_event!("Vulkan render start");
         let (image_index, is_suboptimal) = unsafe {
             self.device.wait_for_fences(&[self.fences[frame_index]], true, u64::MAX).unwrap();
+            sparkles_macro::tracing_event!("wait for fences finish");
             self.device.reset_fences(&[self.fences[frame_index]]).unwrap();
             swapchain_wrapper.swapchain_loader.acquire_next_image(
                 swapchain_wrapper.swapchain,
@@ -250,6 +252,7 @@ impl VulkanBackend {
         if is_suboptimal {
             warn!("Swapchain is suboptimal!");
         }
+        sparkles_macro::tracing_event!("acquire_next_image finish");
 
         // 2) record command buffer
         let command_buffer_begin_info = CommandBufferBeginInfo::default();
@@ -272,6 +275,7 @@ impl VulkanBackend {
             self.device.cmd_end_render_pass(self.command_buffers[frame_index]);
             self.device.end_command_buffer(self.command_buffers[frame_index]).unwrap();
         }
+        sparkles_macro::tracing_event!("record command buffer finish");
         // 2.1) submit command buffer
         let wait_semaphores = [self.image_available_semaphores[frame_index]];
         let wait_dst_stage_mask = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
@@ -288,6 +292,7 @@ impl VulkanBackend {
             self.fences[frame_index],
             ).unwrap();
         }
+        sparkles_macro::tracing_event!("queue_submit finish");
 
         //3) present
         let swapchains = [swapchain_wrapper.swapchain];
@@ -310,6 +315,7 @@ impl VulkanBackend {
                 }
             }
         }
+        sparkles_macro::tracing_event!("queue present finish");
 
         Ok(())
     }
