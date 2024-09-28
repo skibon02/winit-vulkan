@@ -25,6 +25,7 @@ use ash::vk::{self, make_api_version, ApplicationInfo, CommandBuffer, CommandBuf
 
 use std::ffi::{c_char, CString};
 use ash_window::create_surface;
+use sparkles_macro::{instant_event, range_event_start};
 use winit::raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use crate::vulkan_backend::helpers::{CapabilitiesChecker, DebugUtilsHelper};
 
@@ -60,7 +61,8 @@ impl VulkanBackend {
     /// Initialize vulkan resources and use window to create surface
     ///
     /// Must be called from main thread!
-    pub fn new(window: &Window) -> anyhow::Result<Self> {
+    pub fn new_for_window(window: &Window) -> anyhow::Result<Self> {
+        let g = range_event_start!("[Vulkan] INIT");
         // we need window_handle to create Vulkan surface
         let window_handle = window.raw_window_handle()?;
         // we need display_handle to get required extensions
@@ -231,29 +233,34 @@ impl VulkanBackend {
     }
 
     pub fn render(&mut self) -> anyhow::Result<()> {
+        let g = range_event_start!("[Vulkan] render");
         let frame_index = self.cur_frame;
         self.cur_frame = (frame_index + 1) % 2;
 
         let swapchain_wrapper = self.swapchain_wrapper.as_mut().unwrap();
 
         // 1) Acquire next image
-        sparkles_macro::tracing_event!("Vulkan render start");
         let (image_index, is_suboptimal) = unsafe {
+            let g = range_event_start!("[Vulkan] Wait for fences...");
             self.device.wait_for_fences(&[self.fences[frame_index]], true, u64::MAX).unwrap();
-            sparkles_macro::tracing_event!("wait for fences finish");
+            drop(g);
             self.device.reset_fences(&[self.fences[frame_index]]).unwrap();
-            swapchain_wrapper.swapchain_loader.acquire_next_image(
+            let g = range_event_start!("[Vulkan] Acquire next image...");
+            let res = swapchain_wrapper.swapchain_loader.acquire_next_image(
                 swapchain_wrapper.swapchain,
                 u64::MAX,
                 self.image_available_semaphores[frame_index],
                 vk::Fence::null(),
-            ).expect("Failed to acquire next image.")
+            ).expect("Failed to acquire next image.");
+
+            instant_event!("[Vulkan] New frame!");
+            res
         };
         if is_suboptimal {
             warn!("Swapchain is suboptimal!");
         }
-        sparkles_macro::tracing_event!("acquire_next_image finish");
 
+        let g = range_event_start!("[Vulkan] Command buffer recording");
         // 2) record command buffer
         let command_buffer_begin_info = CommandBufferBeginInfo::default();
         let render_pass_begin_info = RenderPassBeginInfo::default()
@@ -275,7 +282,9 @@ impl VulkanBackend {
             self.device.cmd_end_render_pass(self.command_buffers[frame_index]);
             self.device.end_command_buffer(self.command_buffers[frame_index]).unwrap();
         }
-        sparkles_macro::tracing_event!("record command buffer finish");
+        drop(g);
+
+        let g = range_event_start!("[Vulkan] Submit command buffer");
         // 2.1) submit command buffer
         let wait_semaphores = [self.image_available_semaphores[frame_index]];
         let wait_dst_stage_mask = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
@@ -292,9 +301,10 @@ impl VulkanBackend {
             self.fences[frame_index],
             ).unwrap();
         }
-        sparkles_macro::tracing_event!("queue_submit finish");
+        drop(g);
 
         //3) present
+        let g = range_event_start!("[Vulkan] Queue present");
         let swapchains = [swapchain_wrapper.swapchain];
         let semaphores = [self.render_finished_semaphores[frame_index]];
         let image_indices = [image_index];
@@ -315,7 +325,7 @@ impl VulkanBackend {
                 }
             }
         }
-        sparkles_macro::tracing_event!("queue present finish");
+        drop(g);
 
         Ok(())
     }

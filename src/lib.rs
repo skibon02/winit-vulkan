@@ -3,6 +3,7 @@ pub mod vulkan_backend;
 use std::fmt::Debug;
 use std::time::Instant;
 use log::{error, info};
+use sparkles_macro::{instant_event, range_event_start};
 use winit::{event::WindowEvent, event_loop::EventLoop, keyboard};
 use winit::application::ApplicationHandler;
 use winit::event_loop::ActiveEventLoop;
@@ -17,6 +18,7 @@ use crate::vulkan_backend::VulkanBackend;
 #[no_mangle]
 fn android_main(app: AndroidApp) {
     use winit::platform::android::EventLoopBuilderExtAndroid;
+    let g = range_event_start!("android_main init");
 
     android_logger::init_once(
         android_logger::Config::default().with_max_level(log::LevelFilter::Info),
@@ -63,6 +65,7 @@ fn android_main(app: AndroidApp) {
 
 
     let event_loop = EventLoopBuilder::default().with_android_app(app).build().unwrap();
+    drop(g);
     run(event_loop);
 }
 
@@ -85,6 +88,7 @@ impl WinitApp {
 
 impl ApplicationHandler for WinitApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        let g = range_event_start!("[WINIT] resumed");
         info!("\t\t*** APP RESUMED ***");
         let window = event_loop.create_window(WindowAttributes::default().with_title("Winit hello!")).unwrap();
 
@@ -94,6 +98,7 @@ impl ApplicationHandler for WinitApp {
 
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: WindowId, event: WindowEvent) {
+        let g = range_event_start!("[WINIT] window event");
         if self.app.as_mut().unwrap().is_finished() {
             info!("Exit requested!");
             event_loop.exit();
@@ -104,6 +109,7 @@ impl ApplicationHandler for WinitApp {
     }
 
     fn exiting(&mut self, event_loop: &ActiveEventLoop) {
+        let g = range_event_start!("[WINIT] Exiting");
         info!("\t\t*** APP EXITING ***");
         sparkles::finalize();
     }
@@ -113,6 +119,7 @@ impl ApplicationHandler for WinitApp {
     // }
 
     fn memory_warning(&mut self, event_loop: &ActiveEventLoop) {
+        let g = range_event_start!("[WINIT] Memory warning");
         info!("\t\t*** APP MEMORY WARNING ***");
 
     }
@@ -138,7 +145,7 @@ pub enum AppResult {
 impl App {
     pub fn new_winit(window: Window) -> App {
 
-        let vulkan_backend = VulkanBackend::new(&window).unwrap();
+        let vulkan_backend = VulkanBackend::new_for_window(&window).unwrap();
 
         Self {
             app_finished: false,
@@ -167,12 +174,14 @@ impl App {
                 },
                 ..
             }=> {
+                let g = range_event_start!("[APP] Close requested");
                 info!("Close requested...");
                 self.vulkan_backend.wait_idle();
                 self.app_finished = true;
             },
 
             WindowEvent::Touch(t) => {
+                let g = range_event_start!("[APP] Touch event");
                 info!("Touch event: {:?}", t);
                 let now = Instant::now();
                 let prev = self.prev_touch_event_time;
@@ -182,25 +191,24 @@ impl App {
             },
 
             WindowEvent::RedrawRequested => {
-                sparkles_macro::tracing_event!("Redraw requested");
+                let g = range_event_start!("[APP] Redraw requested");
                 if !self.app_finished {
-                    self.vulkan_backend.render().unwrap();
+                    self.vulkan_backend.render()?;
 
                     self.frame_cnt += 1;
                     if self.last_sec.elapsed().as_secs() >= 1 {
-                        sparkles_macro::tracing_event!("New sec!");
+                        instant_event!("[APP] New sec!");
                         sparkles::flush_thread_local();
 
                         info!("FPS: {}", self.frame_cnt);
                         self.frame_cnt = 0;
                         self.last_sec = Instant::now();
                     }
-                    sparkles_macro::tracing_event!("window.request_redraw call");
+                    let g = range_event_start!("[APP] window.request_redraw call");
                     self.window.request_redraw();
-                    sparkles_macro::tracing_event!("window.request_redraw call finish");
                 }
             }
-
+    
             _ => info!("new window event: {:?}", evt),
         }
 

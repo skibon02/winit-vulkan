@@ -1,5 +1,6 @@
 use ash::vk;
 use log::info;
+use sparkles_macro::range_event_start;
 use super::VulkanBackend;
 
 pub struct SwapchainWrapper {
@@ -18,6 +19,7 @@ pub struct SwapchainWrapper {
 
 impl<'a> SwapchainWrapper {
     pub fn new(vulkan_backend: &VulkanBackend) -> anyhow::Result<SwapchainWrapper> {
+        let g = range_event_start!("[Vulkan] Init swapchain");
         let device = &vulkan_backend.device;
         let surface_loader = &vulkan_backend.surface_loader;
         let physical_device = vulkan_backend.physical_device;

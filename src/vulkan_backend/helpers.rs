@@ -4,7 +4,7 @@ use std::{collections::BTreeSet, ffi::{CStr}};
 
 use ash::{vk::{self, DebugUtilsMessageSeverityFlagsEXT, DebugUtilsMessageTypeFlagsEXT, DebugUtilsMessengerCreateInfoEXT}, Instance, Entry};
 use log::{error, info, warn, debug};
-
+use sparkles_macro::range_event_start;
 
 pub struct DebugUtilsHelper {
     debug_utils_h: ash::ext::debug_utils::Instance,
@@ -87,6 +87,7 @@ impl CapabilitiesChecker {
     }
 
     pub fn create_instance(&mut self, entry: &ash::Entry, create_info: &mut vk::InstanceCreateInfo) -> anyhow::Result<ash::Instance> {
+        let g = range_event_start!("[VulkanHelpers] Create instance");
         let requested_layers = unsafe {slice::from_raw_parts(create_info.pp_enabled_layer_names, create_info.enabled_layer_count as usize)};
         let requested_layers: Vec<_> = requested_layers.iter()
             .map(|layer| unsafe { CStr::from_ptr(*layer) })
@@ -154,7 +155,7 @@ impl CapabilitiesChecker {
     }
 
     pub fn create_device(&mut self, instance: &ash::Instance, physical_device: vk::PhysicalDevice, create_info: &mut vk::DeviceCreateInfo) -> anyhow::Result<ash::Device> {
-
+        let g = range_event_start!("[VulkanHelpers] Create device");
         let requested_extensions = unsafe {slice::from_raw_parts(create_info.pp_enabled_extension_names, create_info.enabled_extension_count as usize)};
         let requested_extensions: Vec<_> = requested_extensions.iter()
             .map(|ext| unsafe { CStr::from_ptr(*ext) })
