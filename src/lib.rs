@@ -1,12 +1,11 @@
 pub mod vulkan_backend;
 
-use std::fmt::Debug;
 use std::time::Instant;
 use log::{error, info};
 use sparkles_macro::{instant_event, range_event_start};
 use winit::{event::WindowEvent, event_loop::EventLoop, keyboard};
 use winit::application::ApplicationHandler;
-use winit::event_loop::ActiveEventLoop;
+use winit::event_loop::{ActiveEventLoop, EventLoopBuilder};
 use winit::keyboard::NamedKey;
 use winit::window::{Window, WindowAttributes, WindowId};
 
@@ -15,9 +14,12 @@ use winit::platform::android::activity::*;
 use crate::vulkan_backend::VulkanBackend;
 
 #[cfg(target_os = "android")]
-#[no_mangle]
+#[unsafe(no_mangle)]
 fn android_main(app: AndroidApp) {
+    use jni::JavaVM;
+    use jni::objects::{JObject, JObjectArray, JValue};
     use winit::platform::android::EventLoopBuilderExtAndroid;
+    
     let g = range_event_start!("android_main init");
 
     android_logger::init_once(
@@ -97,7 +99,7 @@ impl ApplicationHandler for WinitApp {
     }
 
 
-    fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: WindowId, event: WindowEvent) {
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _window_id: WindowId, event: WindowEvent) {
         let g = range_event_start!("[WINIT] window event");
         if self.app.as_mut().unwrap().is_finished() {
             info!("Exit requested!");
@@ -108,7 +110,7 @@ impl ApplicationHandler for WinitApp {
         }
     }
 
-    fn exiting(&mut self, event_loop: &ActiveEventLoop) {
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
         let g = range_event_start!("[WINIT] Exiting");
         info!("\t\t*** APP EXITING ***");
         sparkles::finalize();
@@ -163,7 +165,7 @@ impl App {
         self.app_finished
     }
 
-    pub fn handle_event(&mut self, event_loop: &ActiveEventLoop, evt: WindowEvent) -> anyhow::Result<()> {
+    pub fn handle_event(&mut self, _event_loop: &ActiveEventLoop, evt: WindowEvent) -> anyhow::Result<()> {
         match &evt {
             WindowEvent::CloseRequested |
             WindowEvent::KeyboardInput {
@@ -209,7 +211,8 @@ impl App {
                 }
             }
     
-            _ => info!("new window event: {:?}", evt),
+            // _ => info!("new window event: {:?}", evt),
+            _ => {}
         }
 
         Ok(())

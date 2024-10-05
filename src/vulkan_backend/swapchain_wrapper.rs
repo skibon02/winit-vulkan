@@ -1,29 +1,22 @@
-use ash::vk;
+use ash::{vk, Device, Instance};
+use ash::vk::{Extent2D, Format, Image, ImageView, PhysicalDevice, SurfaceKHR, SwapchainKHR};
 use log::info;
 use sparkles_macro::range_event_start;
-use super::VulkanBackend;
 
 pub struct SwapchainWrapper {
-    pub swapchain: vk::SwapchainKHR,
+    pub swapchain: SwapchainKHR,
     pub swapchain_loader: ash::khr::swapchain::Device,
-    pub swapchain_images: Vec<vk::Image>,
-    swapchain_image_views: Vec<vk::ImageView>,
-    swapchain_format: vk::Format,
-    pub swapchain_extent: vk::Extent2D,
+    pub swapchain_images: Vec<Image>,
+    swapchain_image_views: Vec<ImageView>,
+    swapchain_format: Format,
+    pub swapchain_extent: Extent2D,
 
-    pub render_pass: vk::RenderPass,
-    pub framebuffers: Vec<vk::Framebuffer>,
-
-    device: ash::Device,
+    device: Device,
 }
 
 impl<'a> SwapchainWrapper {
-    pub fn new(vulkan_backend: &VulkanBackend) -> anyhow::Result<SwapchainWrapper> {
+    pub fn new(instance: &Instance, device: &Device, physical_device: PhysicalDevice, extent: Extent2D, surface: SurfaceKHR, surface_loader: &ash::khr::surface::Instance) -> anyhow::Result<SwapchainWrapper> {
         let g = range_event_start!("[Vulkan] Init swapchain");
-        let device = &vulkan_backend.device;
-        let surface_loader = &vulkan_backend.surface_loader;
-        let physical_device = vulkan_backend.physical_device;
-        let surface = vulkan_backend.surface;
 
         let surface_capabilities = unsafe { surface_loader.get_physical_device_surface_capabilities(physical_device, surface).unwrap() };
         let surface_formats = unsafe { surface_loader.get_physical_device_surface_formats(physical_device, surface).unwrap() };
@@ -50,23 +43,19 @@ impl<'a> SwapchainWrapper {
         let image_count = surface_capabilities.min_image_count + 1;
         info!("\n\tCreating swapchain...\n\tPresent mode: {:?}\n\tSwapchain image count: {:?}, Color space: {:?}, Image formate: {:?}", present_mode, image_count, surface_format.color_space, surface_format.format);
 
-        let extent = vulkan_backend.surface_resolution;
-
         let swapchain_extent = if surface_capabilities.current_extent.width != u32::MAX {
             surface_capabilities.current_extent
         } else {
-            let mut actual_extent = vk::Extent2D::default()
-                .width(extent.width)
-                .height(extent.height);
+            let mut actual_extent = extent;
             actual_extent.width = actual_extent.width.max(surface_capabilities.min_image_extent.width).min(surface_capabilities.max_image_extent.width);
             actual_extent.height = actual_extent.height.max(surface_capabilities.min_image_extent.height).min(surface_capabilities.max_image_extent.height);
             actual_extent
         };
 
 
-        let swapchain_loader = ash::khr::swapchain::Device::new(&vulkan_backend.instance, device);
+        let swapchain_loader = ash::khr::swapchain::Device::new(&instance, device);
         let swapchain_create_info = vk::SwapchainCreateInfoKHR::default()
-            .surface(vulkan_backend.surface)
+            .surface(surface)
             .min_image_count(image_count)
             .image_color_space(surface_format.color_space)
             .image_format(surface_format.format)
@@ -100,50 +89,6 @@ impl<'a> SwapchainWrapper {
                     .layer_count(1));
             unsafe { device.create_image_view(&image_view_create_info, None).unwrap() }
         }).collect::<Vec<_>>();
-
-        // swapchain and image views are created
-
-        let render_pass = {
-            let color_attachments = [vk::AttachmentDescription::default()
-                .format(surface_format.format)
-                .samples(vk::SampleCountFlags::TYPE_1)
-                .load_op(vk::AttachmentLoadOp::CLEAR)
-                .store_op(vk::AttachmentStoreOp::STORE)
-                .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
-                .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
-                .initial_layout(vk::ImageLayout::UNDEFINED)
-                .final_layout(vk::ImageLayout::PRESENT_SRC_KHR)];
-            let color_attachment_refs = [vk::AttachmentReference::default()
-                .attachment(0)
-                .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)];
-            let subpasses = [vk::SubpassDescription::default()
-                .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
-                .color_attachments(&color_attachment_refs)];
-            let dependencies = [vk::SubpassDependency::default()
-                .src_subpass(vk::SUBPASS_EXTERNAL)
-                .dst_subpass(0)
-                .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
-                .src_access_mask(vk::AccessFlags::empty())
-                .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
-                .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_READ | vk::AccessFlags::COLOR_ATTACHMENT_WRITE)];
-            let render_pass_create_info = vk::RenderPassCreateInfo::default()
-                .attachments(&color_attachments)
-                .subpasses(&subpasses)
-                .dependencies(&dependencies);
-            unsafe { device.create_render_pass(&render_pass_create_info, None).unwrap() }
-        };
-
-        let framebuffers = swapchain_image_views.iter().map(|image_view| {
-            let attachments = [*image_view];
-
-            let framebuffer_create_info = vk::FramebufferCreateInfo::default()
-                .render_pass(render_pass)
-                .attachments(&attachments)
-                .width(swapchain_extent.width)
-                .height(swapchain_extent.height)
-                .layers(1);
-            unsafe { device.create_framebuffer(&framebuffer_create_info, None).unwrap() }
-        }).collect::<Vec<_>>();
         
         Ok(SwapchainWrapper {
             swapchain,
@@ -153,20 +98,25 @@ impl<'a> SwapchainWrapper {
             swapchain_format: surface_format.format,
             swapchain_extent,
 
-            framebuffers,
-            render_pass,
-
             device: device.clone()
         })
+    }
+
+    pub fn get_image_views(&self) -> impl Iterator<Item=ImageView> {
+        self.swapchain_image_views.iter().cloned()
+    }
+
+    pub fn get_surface_format(&self) -> vk::Format {
+        self.swapchain_format
+    }
+
+    pub fn get_resolution(&self) -> vk::Extent2D {
+        self.swapchain_extent
     }
 
     pub unsafe fn destroy(&mut self) {
         unsafe {
             let device = &self.device;
-            for framebuffer in self.framebuffers.iter() {
-                device.destroy_framebuffer(*framebuffer, None);
-            }
-            device.destroy_render_pass(self.render_pass, None);
             for image_view in self.swapchain_image_views.iter() {
                 device.destroy_image_view(*image_view, None);
             }
