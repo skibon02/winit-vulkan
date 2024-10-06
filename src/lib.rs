@@ -14,7 +14,7 @@ use winit::platform::android::activity::*;
 use crate::vulkan_backend::VulkanBackend;
 
 #[cfg(target_os = "android")]
-#[unsafe(no_mangle)]
+#[no_mangle]
 fn android_main(app: AndroidApp) {
     use jni::JavaVM;
     use jni::objects::{JObject, JObjectArray, JValue};

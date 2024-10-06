@@ -102,7 +102,7 @@ impl<'a> SwapchainWrapper {
         })
     }
 
-    pub fn get_image_views(&self) -> impl Iterator<Item=ImageView> {
+    pub fn get_image_views(&self) -> impl Iterator<Item=ImageView> + '_ {
         self.swapchain_image_views.iter().cloned()
     }
 
