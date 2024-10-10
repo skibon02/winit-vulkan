@@ -193,7 +193,8 @@ impl App {
                 if self.window.fullscreen().is_none() {
                     let g = range_event_start!("[APP] Enable fullscreen");
                     let monitor = self.window.current_monitor().unwrap();
-                    let mode = monitor.video_modes().next().unwrap();
+                    // find max by width and refresh rate
+                    let mode = monitor.video_modes().max_by_key(|m| m.refresh_rate_millihertz() * m.size().width).unwrap();
                     info!("Entering fullscreen mode {:?}", mode);
                     self.window.set_fullscreen(Some(Fullscreen::Exclusive(mode)));
                 }
