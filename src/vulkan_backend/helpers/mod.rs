@@ -1,3 +1,4 @@
+pub mod image;
 
 use core::slice;
 use std::{collections::BTreeSet, ffi::{CStr}};

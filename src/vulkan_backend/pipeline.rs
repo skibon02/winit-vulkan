@@ -1,30 +1,54 @@
 use std::ffi::CStr;
-use std::fs;
 use ash::Device;
-use ash::vk::{ColorComponentFlags, CullModeFlags, DynamicState, GraphicsPipelineCreateInfo, Pipeline, PipelineCache, PipelineCacheCreateInfo, PipelineColorBlendAttachmentState, PipelineColorBlendStateCreateInfo, PipelineDynamicStateCreateInfo, PipelineInputAssemblyStateCreateInfo, PipelineLayout, PipelineLayoutCreateInfo, PipelineMultisampleStateCreateInfo, PipelineRasterizationStateCreateInfo, PipelineShaderStageCreateInfo, PipelineVertexInputStateCreateInfo, PipelineViewportStateCreateInfo, PolygonMode, PrimitiveTopology, Rect2D, RenderPass, SampleCountFlags, ShaderModuleCreateInfo, ShaderStageFlags, Viewport};
+use ash::vk::{ColorComponentFlags, CompareOp, CullModeFlags, DynamicState, GraphicsPipelineCreateInfo, Pipeline, PipelineCache, PipelineCacheCreateInfo, PipelineColorBlendAttachmentState, PipelineColorBlendStateCreateInfo, PipelineDepthStencilStateCreateInfo, PipelineDynamicStateCreateInfo, PipelineInputAssemblyStateCreateInfo, PipelineLayout, PipelineLayoutCreateInfo, PipelineMultisampleStateCreateInfo, PipelineRasterizationStateCreateInfo, PipelineShaderStageCreateInfo, PipelineVertexInputStateCreateInfo, PipelineViewportStateCreateInfo, PolygonMode, PrimitiveTopology, Rect2D, RenderPass, SampleCountFlags, ShaderModuleCreateInfo, ShaderStageFlags, Viewport};
 use sparkles_macro::range_event_start;
 
-pub struct TrianglePipeline {
+pub struct VulkanPipeline {
     pipeline: Pipeline,
     pipeline_layout: PipelineLayout,
     pipeline_cache: PipelineCache,
 }
 
-impl TrianglePipeline {
-    pub fn new(device: &Device, render_pass: &RenderPass) -> TrianglePipeline {
+#[macro_export]
+macro_rules! use_shader {
+    ($name:expr) => {
+        (
+            include_bytes!(concat!("../../shaders/compiled/", $name, "_vert.spv")),
+            include_bytes!(concat!("../../shaders/compiled/", $name, "_frag.spv"))
+        )
+    };
+}
+
+pub struct PipelineDesc<'a> {
+    vertex_shader_code: &'a [u8],
+    fragment_shader_code: &'a [u8],
+}
+
+impl<'a> PipelineDesc<'a> {
+    pub fn new((vertex_shader_code, fragment_shader_code): (&'a [u8], &'a [u8])) -> PipelineDesc<'a> {
+        Self {
+            vertex_shader_code,
+            fragment_shader_code,
+        }
+    }
+
+}
+
+impl VulkanPipeline {
+    pub fn new(device: &Device, render_pass: &RenderPass, desc: PipelineDesc) -> VulkanPipeline {
         let g = range_event_start!("Create pipeline");
         // no descriptor sets
         let pipeline_layout_info = PipelineLayoutCreateInfo::default();
         let pipeline_layout = unsafe { device.create_pipeline_layout(&pipeline_layout_info, None).unwrap() };
 
         // shaders
-        let vert_code = include_bytes!("../../shaders/solid_vert.spv");
+        let vert_code = desc.vertex_shader_code;
         let vert_code: Vec<u32> = vert_code.chunks(4).map(|bytes| u32::from_le_bytes(bytes.try_into().unwrap())).collect();
         let vertex_module = unsafe { device.create_shader_module(
             &ShaderModuleCreateInfo::default().code(&vert_code), None)
         }.unwrap();
 
-        let frag_code = include_bytes!("../../shaders/solid_frag.spv");
+        let frag_code = desc.fragment_shader_code;
         let frag_code: Vec<u32> = frag_code.chunks(4).map(|bytes| u32::from_le_bytes(bytes.try_into().unwrap())).collect();
         let frag_module = unsafe { device.create_shader_module(
             &ShaderModuleCreateInfo::default().code(&frag_code), None)
@@ -62,6 +86,12 @@ impl TrianglePipeline {
         let color_blend = PipelineColorBlendStateCreateInfo::default()
             .attachments(&color_blend_attachment);
 
+        let depth_state = PipelineDepthStencilStateCreateInfo::default()
+            .depth_test_enable(true)
+            .depth_write_enable(true)
+            .depth_compare_op(CompareOp::LESS);
+
+
         let stages = [vert_stage, frag_stage];
         let pipeline_create_info = GraphicsPipelineCreateInfo::default()
             .layout(pipeline_layout)
@@ -74,7 +104,8 @@ impl TrianglePipeline {
             .stages(&stages)
             .rasterization_state(&rast_info)
             .color_blend_state(&color_blend)
-            .viewport_state(&viewport_state);
+            .viewport_state(&viewport_state)
+            .depth_stencil_state(&depth_state);
 
         let pipeline_cache = unsafe {
             device.create_pipeline_cache(&PipelineCacheCreateInfo::default(), None).unwrap()
@@ -86,7 +117,7 @@ impl TrianglePipeline {
         unsafe { device.destroy_shader_module(vertex_module, None); }
         unsafe { device.destroy_shader_module(frag_module, None); }
 
-        TrianglePipeline {
+        VulkanPipeline {
             pipeline,
             pipeline_layout,
             pipeline_cache

@@ -1,5 +1,3 @@
-
-
 pub mod swapchain_wrapper;
 pub mod helpers;
 pub mod resource_manager;
@@ -13,15 +11,16 @@ use log::{error, info, warn};
 use winit::window::Window;
 
 use ash::{Device, Entry, Instance};
-use ash::vk::{self, make_api_version, ApplicationInfo, CommandBuffer, CommandBufferBeginInfo, Extent2D, FenceCreateFlags, Queue, RenderPassBeginInfo, Semaphore, SurfaceKHR};
+use ash::vk::{self, make_api_version, ApplicationInfo, CommandBuffer, CommandBufferBeginInfo, Extent2D, FenceCreateFlags, Framebuffer, MemoryType, PhysicalDevice, Queue, RenderPassBeginInfo, Semaphore, SurfaceKHR};
 
 use std::ffi::{c_char, CString};
 use ash_window::create_surface;
 use sparkles_macro::{instant_event, range_event_start};
+use winit::dpi::PhysicalSize;
 use winit::raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use helpers::{CapabilitiesChecker, DebugUtilsHelper};
-use pipeline::TrianglePipeline;
 use render_pass::RenderPassWrapper;
+use crate::vulkan_backend::render_pass::RenderPassResources;
 
 pub struct VulkanBackend {
     instance: Instance,
@@ -31,9 +30,12 @@ pub struct VulkanBackend {
     surface_loader: ash::khr::surface::Instance,
     surface: SurfaceKHR,
 
+    physical_device: PhysicalDevice,
     device: Device,
     queue: Queue,
     command_pool: vk::CommandPool,
+
+    mem_types: Vec<MemoryType>,
 
     // 2 semaphores because at most 2 images can be acquired at the same time for the rendering operation
     command_buffers: Vec<CommandBuffer>,
@@ -45,6 +47,7 @@ pub struct VulkanBackend {
 
     // stuff for actual rendering
     render_pass: RenderPassWrapper,
+    render_pass_resources: RenderPassResources,
 
     cur_frame: usize
 }
@@ -108,7 +111,7 @@ impl VulkanBackend {
         let surface_loader = ash::khr::surface::Instance::new(&entry, &instance);
         let surface = unsafe { create_surface(&entry, &instance, display_handle, window_handle, None).context("Surface creation")? };
 
-        let debug_utils = helpers::DebugUtilsHelper::new(&entry, &instance)?;
+        let debug_utils = DebugUtilsHelper::new(&entry, &instance)?;
         // instance is created. debug utils ready
 
 
@@ -144,7 +147,7 @@ impl VulkanBackend {
 
             support_graphics && support_presentation
         }).map(|(i, _)| i as u32).unwrap_or_else(|| {
-            panic!("No avaliable queue family found");
+            panic!("No available queue family found");
         });
 
         let device_extensions = vec![ash::khr::swapchain::NAME.as_ptr()];
@@ -187,11 +190,14 @@ impl VulkanBackend {
             unsafe { device.create_fence(&vk::FenceCreateInfo::default().flags(FenceCreateFlags::SIGNALED), None).unwrap() }
         ];
 
+        let mem_props = unsafe { instance.get_physical_device_memory_properties(physical_device) };
+        let mem_types = mem_props.memory_types.to_vec();
 
         let extent = Extent2D { width: window_size.width, height: window_size.height };
-        let swapchain_wrapper = SwapchainWrapper::new(&instance, &device, physical_device, extent, surface, &surface_loader)?;
-        let render_pass = RenderPassWrapper::new(&device, swapchain_wrapper.get_surface_format(), swapchain_wrapper.get_resolution(), swapchain_wrapper.get_image_views());
-
+        let swapchain_wrapper = SwapchainWrapper::new(&instance, &device, physical_device, extent, surface, &surface_loader, None)?;
+        let render_pass = RenderPassWrapper::new(&device, swapchain_wrapper.get_surface_format());
+        let render_pass_resources = render_pass.create_render_pass_resources(&device,
+                             swapchain_wrapper.get_image_views(), swapchain_wrapper.get_extent(), &mem_types);
         Ok(VulkanBackend {
             instance, 
 
@@ -199,11 +205,14 @@ impl VulkanBackend {
             surface,
             debug_utils,
 
+            physical_device,
             device,
             queue,
             command_pool,
 
             swapchain_wrapper,
+
+            mem_types,
 
             command_buffers,
             image_available_semaphores,
@@ -211,9 +220,30 @@ impl VulkanBackend {
             fences,
 
             render_pass,
+            render_pass_resources,
 
             cur_frame: 0
         })
+    }
+
+    pub fn recreate_resize(&mut self, new_extent: PhysicalSize<u32>) {
+        let new_extent = Extent2D {width: new_extent.width, height: new_extent.height };
+        self.wait_idle();
+
+        // 1. Destroy swapchain dependent resources
+        unsafe { self.render_pass_resources.destroy(&self.device); }
+
+        // 2. Recreate swapchain
+        let old_format = self.swapchain_wrapper.get_surface_format();
+        unsafe { self.swapchain_wrapper.recreate(&self.instance, &self.device, self.physical_device, new_extent, self.surface, &self.surface_loader).unwrap() };
+        let new_format = self.swapchain_wrapper.get_surface_format();
+        if new_format != old_format {
+            unimplemented!("Swapchain returned the wrong format");
+        }
+
+        // 3. Recreate swapchain_dependent resources
+        self.render_pass_resources = self.render_pass.create_render_pass_resources(&self.device,
+            self.swapchain_wrapper.get_image_views(), self.swapchain_wrapper.get_extent(), &self.mem_types);
     }
 
     pub fn render(&mut self) -> anyhow::Result<()> {
@@ -229,7 +259,7 @@ impl VulkanBackend {
             self.device.reset_fences(&[self.fences[frame_index]]).unwrap();
             let g = range_event_start!("[Vulkan] Acquire next image...");
             let res = self.swapchain_wrapper.swapchain_loader.acquire_next_image(
-                self.swapchain_wrapper.swapchain,
+                self.swapchain_wrapper.get_swapchain(),
                 u64::MAX,
                 self.image_available_semaphores[frame_index],
                 vk::Fence::null(),
@@ -243,7 +273,9 @@ impl VulkanBackend {
         }
 
         // 2) record command buffer
-        self.render_pass.record_draw(&self.device, image_index, self.command_buffers[frame_index]);
+        self.render_pass.record_draw(&self.device, self.command_buffers[frame_index],
+                                     self.render_pass_resources.framebuffers[image_index as usize],
+                                     self.swapchain_wrapper.get_extent());
 
         let g = range_event_start!("[Vulkan] Submit command buffer");
         // 2.1) submit command buffer
@@ -266,7 +298,7 @@ impl VulkanBackend {
 
         //3) present
         let g = range_event_start!("[Vulkan] Queue present");
-        let swapchains = [self.swapchain_wrapper.swapchain];
+        let swapchains = [self.swapchain_wrapper.get_swapchain()];
         let semaphores = [self.render_finished_semaphores[frame_index]];
         let image_indices = [image_index];
         let present_info = vk::PresentInfoKHR::default()
@@ -305,6 +337,8 @@ impl Drop for VulkanBackend {
     fn drop(&mut self) {
         info!("vulkan: drop");
         self.wait_idle();
+        unsafe { self.render_pass_resources.destroy(&self.device); }
+        // render pass
         unsafe { self.render_pass.destroy(&self.device); }
         unsafe { self.swapchain_wrapper.destroy(); }
 

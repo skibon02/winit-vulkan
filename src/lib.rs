@@ -7,7 +7,7 @@ use winit::{event::WindowEvent, event_loop::EventLoop, keyboard};
 use winit::application::ApplicationHandler;
 use winit::event_loop::{ActiveEventLoop, EventLoopBuilder};
 use winit::keyboard::NamedKey;
-use winit::window::{Window, WindowAttributes, WindowId};
+use winit::window::{Fullscreen, Window, WindowAttributes, WindowId};
 
 #[cfg(target_os = "android")]
 use winit::platform::android::activity::*;
@@ -92,7 +92,7 @@ impl ApplicationHandler for WinitApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let g = range_event_start!("[WINIT] resumed");
         info!("\t\t*** APP RESUMED ***");
-        let window = event_loop.create_window(WindowAttributes::default().with_title("Winit hello!")).unwrap();
+        let window = event_loop.create_window(WindowAttributes::default().with_title("Crazy triangle")).unwrap();
 
         let app = App::new_winit(window);
         self.app = Some(app);
@@ -182,6 +182,24 @@ impl App {
                 self.app_finished = true;
             },
 
+            WindowEvent::KeyboardInput {
+                event: winit::event::KeyEvent {
+                    logical_key: keyboard::Key::Named(NamedKey::F11),
+                    state: winit::event::ElementState::Pressed,
+                    ..
+                },
+                ..
+            }=> {
+                if self.window.fullscreen().is_none() {
+                    let g = range_event_start!("[APP] Enable fullscreen");
+                    self.window.set_fullscreen(Some(Fullscreen::Borderless(None)));
+                }
+                else {
+                    let g = range_event_start!("[APP] Exit fullscreen mode");
+                    self.window.set_fullscreen(None);
+                }
+            },
+
             WindowEvent::Touch(t) => {
                 let g = range_event_start!("[APP] Touch event");
                 info!("Touch event: {:?}", t);
@@ -210,7 +228,9 @@ impl App {
                     self.window.request_redraw();
                 }
             }
-    
+            WindowEvent::Resized(size) => {
+                self.vulkan_backend.recreate_resize(*size);
+            }
             // _ => info!("new window event: {:?}", evt),
             _ => {}
         }
