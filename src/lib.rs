@@ -192,7 +192,10 @@ impl App {
             }=> {
                 if self.window.fullscreen().is_none() {
                     let g = range_event_start!("[APP] Enable fullscreen");
-                    self.window.set_fullscreen(Some(Fullscreen::Borderless(None)));
+                    let monitor = self.window.current_monitor().unwrap();
+                    let mode = monitor.video_modes().next().unwrap();
+                    info!("Entering fullscreen mode {:?}", mode);
+                    self.window.set_fullscreen(Some(Fullscreen::Exclusive(mode)));
                 }
                 else {
                     let g = range_event_start!("[APP] Exit fullscreen mode");
