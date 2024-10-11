@@ -1,6 +1,6 @@
 use std::ffi::CStr;
 use ash::Device;
-use ash::vk::{ColorComponentFlags, CompareOp, CullModeFlags, DynamicState, GraphicsPipelineCreateInfo, Pipeline, PipelineCache, PipelineCacheCreateInfo, PipelineColorBlendAttachmentState, PipelineColorBlendStateCreateInfo, PipelineDepthStencilStateCreateInfo, PipelineDynamicStateCreateInfo, PipelineInputAssemblyStateCreateInfo, PipelineLayout, PipelineLayoutCreateInfo, PipelineMultisampleStateCreateInfo, PipelineRasterizationStateCreateInfo, PipelineShaderStageCreateInfo, PipelineVertexInputStateCreateInfo, PipelineViewportStateCreateInfo, PolygonMode, PrimitiveTopology, Rect2D, RenderPass, SampleCountFlags, ShaderModuleCreateInfo, ShaderStageFlags, Viewport};
+use ash::vk::{ColorComponentFlags, CompareOp, CullModeFlags, DynamicState, Format, GraphicsPipelineCreateInfo, Pipeline, PipelineCache, PipelineCacheCreateInfo, PipelineColorBlendAttachmentState, PipelineColorBlendStateCreateInfo, PipelineDepthStencilStateCreateInfo, PipelineDynamicStateCreateInfo, PipelineInputAssemblyStateCreateInfo, PipelineLayout, PipelineLayoutCreateInfo, PipelineMultisampleStateCreateInfo, PipelineRasterizationStateCreateInfo, PipelineShaderStageCreateInfo, PipelineVertexInputStateCreateFlags, PipelineVertexInputStateCreateInfo, PipelineViewportStateCreateInfo, PolygonMode, PrimitiveTopology, Rect2D, RenderPass, SampleCountFlags, ShaderModuleCreateInfo, ShaderStageFlags, VertexInputAttributeDescription, VertexInputBindingDescription, Viewport};
 use sparkles_macro::range_event_start;
 
 pub struct VulkanPipeline {
@@ -24,6 +24,65 @@ pub struct PipelineDesc<'a> {
     fragment_shader_code: &'a [u8],
 }
 
+pub struct VertexInputDesc {
+    topology: PrimitiveTopology,
+    attrib_desc: Vec<VertexInputAttributeDescription>,
+    binding_desc: Vec<VertexInputBindingDescription>,
+    stride_per_binding: Vec<usize>,
+    last_location: usize
+}
+
+impl VertexInputDesc {
+    pub fn new(topology: PrimitiveTopology) -> Self {
+        Self {
+            topology,
+            attrib_desc: Vec::new(),
+            binding_desc: Vec::new(),
+            stride_per_binding: vec![0],
+            last_location: 0
+        }
+    }
+
+    pub fn attrib_3_floats(mut self) -> Self {
+        let cur_binding = self.stride_per_binding.len() - 1;
+        self.attrib_desc.push(VertexInputAttributeDescription::default()
+            .binding(cur_binding as u32)
+            .format(Format::R32G32B32_SFLOAT)
+            .offset(self.stride_per_binding[cur_binding] as u32)
+            .location(self.last_location as u32));
+
+        self.last_location += 1;
+        self.stride_per_binding[cur_binding] += 4 * 3;
+        self
+    }
+    pub fn attrib_2_floats(mut self) -> Self {
+        let cur_binding = self.stride_per_binding.len() - 1;
+        self.attrib_desc.push(VertexInputAttributeDescription::default()
+            .binding(cur_binding as u32)
+            .format(Format::R32G32_SFLOAT)
+            .offset(self.stride_per_binding[cur_binding] as u32)
+            .location(self.last_location as u32));
+
+        self.last_location += 1;
+        self.stride_per_binding[cur_binding] += 4 * 2;
+        self
+    }
+    pub fn get_binding_desc(&self) -> Vec<VertexInputBindingDescription> {
+        self.stride_per_binding.iter().enumerate()
+            .map(|(i, stride)| VertexInputBindingDescription::default()
+                .binding(i as u32)
+                .stride(*stride as u32)).collect()
+    }
+
+    pub fn get_input_state_create_info(&mut self) -> PipelineVertexInputStateCreateInfo {
+        self.binding_desc = self.get_binding_desc();
+
+        PipelineVertexInputStateCreateInfo::default()
+            .vertex_attribute_descriptions(&self.attrib_desc)
+            .vertex_binding_descriptions(&self.binding_desc)
+    }
+}
+
 impl<'a> PipelineDesc<'a> {
     pub fn new((vertex_shader_code, fragment_shader_code): (&'a [u8], &'a [u8])) -> PipelineDesc<'a> {
         Self {
@@ -31,11 +90,10 @@ impl<'a> PipelineDesc<'a> {
             fragment_shader_code,
         }
     }
-
 }
 
 impl VulkanPipeline {
-    pub fn new(device: &Device, render_pass: &RenderPass, desc: PipelineDesc) -> VulkanPipeline {
+    pub fn new(device: &Device, render_pass: &RenderPass, desc: PipelineDesc, mut vert_desc: VertexInputDesc) -> VulkanPipeline {
         let g = range_event_start!("Create pipeline");
         // no descriptor sets
         let pipeline_layout_info = PipelineLayoutCreateInfo::default();
@@ -70,9 +128,9 @@ impl VulkanPipeline {
         let dynamic_state = PipelineDynamicStateCreateInfo::default()
             .dynamic_states(&[DynamicState::VIEWPORT, DynamicState::SCISSOR]);
 
-        let vertex_input = PipelineVertexInputStateCreateInfo::default();
         let input_assembly = PipelineInputAssemblyStateCreateInfo::default()
-            .topology(PrimitiveTopology::TRIANGLE_LIST);
+            .topology(vert_desc.topology);
+        let vertex_input = vert_desc.get_input_state_create_info();
 
         let rast_info = PipelineRasterizationStateCreateInfo::default()
             .cull_mode(CullModeFlags::NONE)

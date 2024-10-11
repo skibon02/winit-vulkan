@@ -33,6 +33,7 @@ fn main() {
 
                 match status {
                     Ok(status) if status.success() => {
+                        // does not detect changes
                         println!("cargo:rerun-if-changed={}", path.display());
                     }
                     _ => {

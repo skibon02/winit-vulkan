@@ -1,10 +1,10 @@
 use std::mem::take;
 use ash::{vk, Device};
-use ash::vk::{AccessFlags, CommandBufferBeginInfo, DeviceMemory, Extent2D, Format, Framebuffer, Image, ImageAspectFlags, ImageUsageFlags, ImageView, MemoryAllocateInfo, MemoryType, PipelineBindPoint, PipelineStageFlags, RenderPass, RenderPassBeginInfo, SampleCountFlags};
+use ash::vk::{AccessFlags, Buffer, CommandBufferBeginInfo, DeviceMemory, Extent2D, Format, Framebuffer, Image, ImageAspectFlags, ImageUsageFlags, ImageView, MemoryAllocateInfo, MemoryType, PipelineBindPoint, PipelineStageFlags, PrimitiveTopology, RenderPass, RenderPassBeginInfo, SampleCountFlags};
 use sparkles_macro::range_event_start;
 use crate::use_shader;
 use crate::vulkan_backend::helpers::image::{image_2d_info, imageview_info_for_image};
-use crate::vulkan_backend::pipeline::{PipelineDesc, VulkanPipeline};
+use crate::vulkan_backend::pipeline::{PipelineDesc, VertexInputDesc, VulkanPipeline};
 
 pub struct RenderPassResources {
     pub framebuffers: Vec<Framebuffer>,
@@ -92,7 +92,10 @@ impl RenderPassWrapper {
         };
 
         let pipeline_desc = PipelineDesc::new(use_shader!("solid"));
-        let pipeline = VulkanPipeline::new(device, &render_pass, pipeline_desc);
+        let vert_desc = VertexInputDesc::new(PrimitiveTopology::TRIANGLE_LIST)
+            .attrib_3_floats()  // 0: Pos 3D
+            .attrib_3_floats();               // 1: Normal 3D
+        let pipeline = VulkanPipeline::new(device, &render_pass, pipeline_desc, vert_desc);
 
         Self {
             render_pass,
@@ -150,11 +153,11 @@ impl RenderPassWrapper {
             depth_images_memory,
             depth_images,
             depth_image_views,
-            framebuffers
+            framebuffers,
         }
     }
 
-    pub fn record_draw(&mut self, device: &Device, command_buffer: vk::CommandBuffer, framebuffer: Framebuffer, extent: Extent2D) {
+    pub fn record_draw(&mut self, device: &Device, command_buffer: vk::CommandBuffer, framebuffer: Framebuffer, vertex_buffer: Buffer, extent: Extent2D) {
         let g = range_event_start!("[Vulkan] Command buffer recording");
         let command_buffer_begin_info = CommandBufferBeginInfo::default();
         let render_pass_begin_info = RenderPassBeginInfo::default()
@@ -184,8 +187,10 @@ impl RenderPassWrapper {
             //bind dynamic states
             device.cmd_set_viewport(command_buffer, 0, &[viewport]);
             device.cmd_set_scissor(command_buffer, 0, &[scissors]);
-            //draw
+            //bind
             device.cmd_bind_pipeline(command_buffer, PipelineBindPoint::GRAPHICS, self.pipeline.get_pipeline());
+            device.cmd_bind_vertex_buffers(command_buffer, 0, &[vertex_buffer], &[0]);
+            //draw
             device.cmd_draw(command_buffer, 3, 1, 0, 0);
             
             device.cmd_end_render_pass(command_buffer);

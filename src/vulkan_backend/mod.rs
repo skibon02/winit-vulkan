@@ -11,9 +11,10 @@ use log::{error, info, warn};
 use winit::window::Window;
 
 use ash::{Device, Entry, Instance};
-use ash::vk::{self, make_api_version, ApplicationInfo, CommandBuffer, CommandBufferBeginInfo, Extent2D, FenceCreateFlags, Framebuffer, MemoryType, PhysicalDevice, Queue, RenderPassBeginInfo, Semaphore, SurfaceKHR};
+use ash::vk::{self, make_api_version, ApplicationInfo, Buffer, BufferCreateInfo, BufferUsageFlags, CommandBuffer, CommandBufferBeginInfo, DeviceMemory, Extent2D, FenceCreateFlags, Framebuffer, MemoryAllocateInfo, MemoryMapFlags, MemoryType, PhysicalDevice, Queue, RenderPassBeginInfo, Semaphore, SharingMode, SurfaceKHR};
 
 use std::ffi::{c_char, CString};
+use std::{mem, slice};
 use ash_window::create_surface;
 use sparkles_macro::{instant_event, range_event_start};
 use winit::dpi::PhysicalSize;
@@ -48,8 +49,40 @@ pub struct VulkanBackend {
     // stuff for actual rendering
     render_pass: RenderPassWrapper,
     render_pass_resources: RenderPassResources,
+    vertex_buffer: (Buffer, DeviceMemory),
 
     cur_frame: usize
+}
+
+// Create buffer for 3 vertecies 4*6 bytes each
+fn create_vertex_buffer(device: &Device, mem_types: &Vec<MemoryType>) -> (vk::Buffer, vk::DeviceMemory) {
+    let total_bytes = 4*6*3;
+    let buffer = unsafe { device.create_buffer(&BufferCreateInfo::default()
+        .sharing_mode(SharingMode::EXCLUSIVE)
+        .size(total_bytes)
+        .usage(BufferUsageFlags::VERTEX_BUFFER), None).unwrap() };
+    let buffer_memory_requirement = unsafe { device.get_buffer_memory_requirements(buffer) };
+    let mem_type_i = mem_types.iter().enumerate().position(|(i, memory_type)| {
+        buffer_memory_requirement.memory_type_bits & (1 << i) != 0 && memory_type.property_flags.contains(vk::MemoryPropertyFlags::HOST_COHERENT)
+    }).unwrap();
+    let alloc_info = MemoryAllocateInfo::default()
+        .allocation_size(buffer_memory_requirement.size)
+        .memory_type_index(mem_type_i as u32);
+
+    let buf_memory = unsafe { device.allocate_memory(&alloc_info, None) }.unwrap();
+    unsafe { device.bind_buffer_memory(buffer, buf_memory, 0).unwrap(); }
+
+    //fill with data
+    let data: [f32; 6*3] = [0.0, 0.0, 0.0, 1.0, 0.0, 1.0,
+                    0.5, 1.0, 0.0, 0.0, 1.0, 1.0,
+                    1.0, 0.0, 0.0, 1.0, 1.0, 0.0];
+
+    let ptr = unsafe { device.map_memory(buf_memory, 0, total_bytes, MemoryMapFlags::empty()) }.unwrap();
+    let mapped = unsafe { slice::from_raw_parts_mut(ptr as *mut f32, data.len()) };
+    mapped.copy_from_slice(&data);
+    unsafe { device.unmap_memory(buf_memory); }
+
+    (buffer, buf_memory)
 }
 
 impl VulkanBackend {
@@ -198,6 +231,8 @@ impl VulkanBackend {
         let render_pass = RenderPassWrapper::new(&device, swapchain_wrapper.get_surface_format());
         let render_pass_resources = render_pass.create_render_pass_resources(&device,
                              swapchain_wrapper.get_image_views(), swapchain_wrapper.get_extent(), &mem_types);
+
+        let vertex_buffer = create_vertex_buffer(&device, &mem_types);
         Ok(VulkanBackend {
             instance, 
 
@@ -221,6 +256,7 @@ impl VulkanBackend {
 
             render_pass,
             render_pass_resources,
+            vertex_buffer,
 
             cur_frame: 0
         })
@@ -275,6 +311,7 @@ impl VulkanBackend {
         // 2) record command buffer
         self.render_pass.record_draw(&self.device, self.command_buffers[frame_index],
                                      self.render_pass_resources.framebuffers[image_index as usize],
+                                     self.vertex_buffer.0,
                                      self.swapchain_wrapper.get_extent());
 
         let g = range_event_start!("[Vulkan] Submit command buffer");
@@ -341,6 +378,11 @@ impl Drop for VulkanBackend {
         // render pass
         unsafe { self.render_pass.destroy(&self.device); }
         unsafe { self.swapchain_wrapper.destroy(); }
+
+
+        // input buffer
+        unsafe { self.device.free_memory(self.vertex_buffer.1, None); }
+        unsafe { self.device.destroy_buffer(self.vertex_buffer.0, None); }
 
         for semaphore in self.image_available_semaphores {
             unsafe { self.device.destroy_semaphore(semaphore, None); }
