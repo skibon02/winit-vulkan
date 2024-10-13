@@ -1,8 +1,9 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 use ash::vk::{self, CommandBufferUsageFlags, Extent2D, Extent3D, ImageCreateInfo, SampleCountFlags};
-use crate::vulkan_backend::helpers::command_pool::VkCommandPool;
-use crate::vulkan_backend::helpers::image::image_2d_info;
+use crate::vulkan_backend::wrappers::command_pool::VkCommandPool;
+use crate::vulkan_backend::wrappers::device::VkDeviceRef;
+use crate::vulkan_backend::wrappers::image::image_2d_info;
 
 #[derive(Debug)]
 pub enum HostAccessPolicy {
@@ -37,7 +38,7 @@ pub struct ResourceManager {
     image_resources: Vec<ImageResource>,
     buffer_resources: Vec<BufferResource>,
 
-    device: Arc<ash::Device>,
+    device: VkDeviceRef,
     queue: vk::Queue,
     command_buffer: vk::CommandBuffer,
     transfer_completed_fence: vk::Fence,
@@ -46,7 +47,7 @@ pub struct ResourceManager {
 }
 
 impl ResourceManager {
-    pub fn new(instance: &ash::Instance, physical_device: vk::PhysicalDevice, device: Arc<ash::Device>, queue: vk::Queue, command_pool: &VkCommandPool) -> Self {
+    pub fn new(instance: &ash::Instance, physical_device: vk::PhysicalDevice, device: VkDeviceRef, queue: vk::Queue, command_pool: &VkCommandPool) -> Self {
         // allocate command buffer
         let command_buffer = command_pool.alloc_command_buffers(1)[0];
 
@@ -455,19 +456,21 @@ impl ResourceManager {
         
         unsafe {self.device.create_sampler(&sampler_create_info, None)}.unwrap()
     }
+}
+impl Drop for ResourceManager {
+    fn drop(&mut self) {
 
-    pub unsafe fn destroy(&mut self) {
         for image_res in self.image_resources.drain(..) {
-            self.device.free_memory(image_res.memory, None);
-            self.device.destroy_image(image_res.image, None);
+            unsafe { self.device.free_memory(image_res.memory, None); }
+            unsafe { self.device.destroy_image(image_res.image, None); }
         }
 
         for buffer_res in self.buffer_resources.drain(..) {
-            self.device.free_memory(buffer_res.memory, None);
-            self.device.destroy_buffer(buffer_res.buffer, None);
+            unsafe { self.device.free_memory(buffer_res.memory, None); }
+            unsafe { self.device.destroy_buffer(buffer_res.buffer, None); }
         }
 
-        self.device.destroy_fence(self.transfer_completed_fence, None);
+        unsafe { self.device.destroy_fence(self.transfer_completed_fence, None); }
     }
 }
 

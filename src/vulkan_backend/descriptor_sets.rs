@@ -2,9 +2,10 @@ use std::sync::Arc;
 use ash::{vk, Device};
 use ash::vk::{BufferUsageFlags, DescriptorBufferInfo, DescriptorPool, DescriptorPoolSize, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateFlags, DescriptorType, DeviceMemory, ShaderStageFlags, WriteDescriptorSet, WHOLE_SIZE};
 use crate::vulkan_backend::resource_manager::{BufferResource, ResourceManager};
+use crate::vulkan_backend::wrappers::device::VkDeviceRef;
 
 pub struct DescriptorSets {
-    device: Arc<Device>,
+    device: VkDeviceRef,
 
     descriptor_set_layout: DescriptorSetLayout,
     descriptor_set: DescriptorSet,
@@ -13,7 +14,7 @@ pub struct DescriptorSets {
 }
 
 impl DescriptorSets {
-    pub fn new(device: Arc<Device>, resource_manager: &mut ResourceManager) -> DescriptorSets {
+    pub fn new(device: VkDeviceRef, resource_manager: &mut ResourceManager) -> DescriptorSets {
         // 1. Create layout
         let bindings = [DescriptorSetLayoutBinding::default()
             .binding(0)

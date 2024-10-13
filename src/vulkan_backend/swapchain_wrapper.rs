@@ -1,9 +1,10 @@
 use ash::{vk, Device, Instance};
-use ash::khr::{surface, swapchain};
+use ash::khr::swapchain;
 use ash::vk::{Extent2D, Format, Image, ImageAspectFlags, ImageTiling, ImageUsageFlags, ImageView, PhysicalDevice, SampleCountFlags, SurfaceKHR, SwapchainKHR};
 use log::info;
 use sparkles_macro::range_event_start;
-use crate::vulkan_backend::helpers::image::{image_2d_info, imageview_info_for_image, swapchain_info};
+use crate::vulkan_backend::wrappers::image::{image_2d_info, imageview_info_for_image, swapchain_info};
+use crate::vulkan_backend::wrappers::surface::VkSurface;
 
 pub struct SwapchainWrapper {
     swapchain: SwapchainKHR,
@@ -18,12 +19,16 @@ pub struct SwapchainWrapper {
 
 impl SwapchainWrapper {
     pub fn new(instance: &Instance, device: &Device, physical_device: PhysicalDevice,
-            extent: Extent2D, surface: SurfaceKHR, surface_loader: &surface::Instance, old_swapchain: Option<SwapchainKHR>) -> anyhow::Result<SwapchainWrapper> {
+            extent: Extent2D, surface: &VkSurface, old_swapchain: Option<SwapchainKHR>) -> anyhow::Result<SwapchainWrapper> {
         let g = range_event_start!("[Vulkan] Init swapchain");
 
-        let surface_capabilities = unsafe { surface_loader.get_physical_device_surface_capabilities(physical_device, surface)? };
-        let surface_formats = unsafe { surface_loader.get_physical_device_surface_formats(physical_device, surface)? };
-        let surface_present_modes = unsafe { surface_loader.get_physical_device_surface_present_modes(physical_device, surface)? };
+        let surface_loader = surface.loader();
+        let surface = surface.surface();
+
+        // TODO: replace with wrapper methods
+        let surface_capabilities = unsafe { surface_loader.get_physical_device_surface_capabilities(physical_device, *surface)? };
+        let surface_formats = unsafe { surface_loader.get_physical_device_surface_formats(physical_device, *surface)? };
+        let surface_present_modes = unsafe { surface_loader.get_physical_device_surface_present_modes(physical_device, *surface)? };
 
         //prefer B8G8R8A8_UNORM and SRGB_NONLINEAR
         let surface_format = surface_formats.iter().find(|f| {
@@ -60,7 +65,7 @@ impl SwapchainWrapper {
         let swapchain_image_info = image_2d_info(surface_format.format, ImageUsageFlags::COLOR_ATTACHMENT,
                                              swapchain_extent, SampleCountFlags::TYPE_1, ImageTiling::OPTIMAL);
         let swapchain_create_info = swapchain_info(swapchain_image_info, surface_format.color_space)
-            .surface(surface)
+            .surface(*surface)
             .min_image_count(image_count)
             .pre_transform(surface_capabilities.current_transform)
             .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
@@ -113,28 +118,21 @@ impl SwapchainWrapper {
 
     /// # Safety
     /// Image views should not be used. Swapchain should not be used.
-    pub unsafe fn recreate(&mut self, instance: &Instance, device: &Device, physical_device: PhysicalDevice,
-                           extent: Extent2D, surface: SurfaceKHR, surface_loader: &surface::Instance) -> anyhow::Result<()> {
+    pub unsafe fn recreate(&mut self, instance: &Instance, physical_device: PhysicalDevice,
+                           extent: Extent2D, surface: &VkSurface) -> anyhow::Result<()> {
         let device = &self.device;
-        for image_view in self.swapchain_image_views.iter() {
-            device.destroy_image_view(*image_view, None);
-        }
 
         let swapchain = self.swapchain;
-        *self = Self::new(instance, device, physical_device, extent, surface, surface_loader, Some(swapchain))?;
-        unsafe {self.swapchain_loader.destroy_swapchain(swapchain, None);}
+        *self = Self::new(instance, device, physical_device, extent, surface, Some(swapchain))?;
         Ok(())
     }
+}
 
-    /// # Safety
-    /// Image views should not be used. Swapchain should not be used.
-    pub unsafe fn destroy(&mut self) {
-        unsafe {
-            let device = &self.device;
-            for image_view in self.swapchain_image_views.iter() {
-                device.destroy_image_view(*image_view, None);
-            }
-            self.swapchain_loader.destroy_swapchain(self.swapchain, None);
+impl Drop for SwapchainWrapper {
+    fn drop(&mut self) {
+        for image_view in self.swapchain_image_views.iter() {
+            unsafe { self.device.destroy_image_view(*image_view, None); }
         }
+        unsafe { self.swapchain_loader.destroy_swapchain(self.swapchain, None); }
     }
 }

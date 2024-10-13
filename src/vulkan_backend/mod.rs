@@ -1,5 +1,5 @@
 pub mod swapchain_wrapper;
-pub mod helpers;
+pub mod wrappers;
 pub mod resource_manager;
 pub mod pipeline;
 pub mod render_pass;
@@ -7,38 +7,36 @@ pub mod descriptor_sets;
 
 use swapchain_wrapper::SwapchainWrapper;
 
-use anyhow::Context;
 use log::{error, info, warn};
 use winit::window::Window;
 
-use ash::{Device, Entry, Instance};
-use ash::vk::{self, make_api_version, ApplicationInfo, Buffer, BufferUsageFlags, CommandBuffer, CommandBufferBeginInfo, DeviceMemory, Extent2D, FenceCreateFlags, Framebuffer, MemoryAllocateInfo, MemoryMapFlags, MemoryType, PhysicalDevice, Queue, RenderPassBeginInfo, Semaphore, SharingMode, SurfaceKHR};
+use ash::{Entry, Instance};
+use ash::vk::{self, make_api_version, ApplicationInfo, BufferUsageFlags, CommandBuffer,
+              Extent2D, FenceCreateFlags, PhysicalDevice, Queue, Semaphore, SurfaceKHR};
 
 use std::ffi::{c_char, CString};
 use std::array::from_fn;
-use std::sync::Arc;
-use ash_window::create_surface;
 use sparkles_macro::{instant_event, range_event_start};
 use winit::dpi::PhysicalSize;
 use winit::raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
-use helpers::{CapabilitiesChecker, DebugUtilsHelper};
 use render_pass::RenderPassWrapper;
 use crate::app::App;
-use crate::vulkan_backend::helpers::command_pool::VkCommandPool;
+use crate::vulkan_backend::wrappers::command_pool::VkCommandPool;
 use crate::vulkan_backend::render_pass::RenderPassResources;
 use crate::vulkan_backend::resource_manager::{BufferResource, ResourceManager};
+use crate::vulkan_backend::wrappers::capabilities_checker::CapabilitiesChecker;
+use crate::vulkan_backend::wrappers::debug_utils::VkDebugUtils;
+use crate::vulkan_backend::wrappers::device::VkDeviceRef;
+use crate::vulkan_backend::wrappers::instance::VkInstance;
+use crate::vulkan_backend::wrappers::surface::VkSurface;
 
 pub struct VulkanBackend {
     app: App,
-    instance: Instance,
-
-    debug_utils: DebugUtilsHelper,
-
-    surface_loader: ash::khr::surface::Instance,
-    surface: SurfaceKHR,
-
+    instance: VkInstance,
+    debug_utils: VkDebugUtils,
+    surface: VkSurface,
     physical_device: PhysicalDevice,
-    device: Arc<Device>,
+    device: VkDeviceRef,
     queue: Queue,
     command_pool: VkCommandPool,
 
@@ -75,8 +73,6 @@ impl VulkanBackend {
         let window_size = window.inner_size();
         info!("Vulkan init started! Got window with dimensions: {:?}", window_size);
 
-        let entry = Entry::linked();
-
         let app_name = CString::new("Hello Vulkan")?;
 
         let app_info = ApplicationInfo::default()
@@ -105,7 +101,7 @@ impl VulkanBackend {
         instance_extensions.push(ash::ext::debug_utils::NAME.as_ptr());
 
 
-        let mut debug_utils_messenger_info = DebugUtilsHelper::get_messenger_create_info();
+        let mut debug_utils_messenger_info = VkDebugUtils::get_messenger_create_info();
         let mut create_info = vk::InstanceCreateInfo::default()
             .application_info(&app_info)
             .enabled_layer_names(&instance_layers_refs)
@@ -116,26 +112,27 @@ impl VulkanBackend {
 
         // caps_checker will check requested layers and extensions and enable only the
         // supported ones, which can be requested later
-        let instance = caps_checker.create_instance(&entry, &mut create_info)?;
+        let instance = caps_checker.create_instance(&mut create_info)?;
 
-        let surface_loader = ash::khr::surface::Instance::new(&entry, &instance);
-        let surface = unsafe { create_surface(&entry, &instance, display_handle, window_handle, None).context("Surface creation")? };
+        let surface_wrapper = VkSurface::new(&instance, display_handle, window_handle)?;
 
-        let debug_utils = DebugUtilsHelper::new(&entry, &instance)?;
+        let debug_utils = VkDebugUtils::new(&instance)?;
         // instance is created. debug utils ready
 
 
-        let physical_devices = unsafe { instance.enumerate_physical_devices().unwrap() };
+        let physical_devices = unsafe { instance.enumerate_physical_devices()? };
 
         let physical_device = *physical_devices.iter().find(|&d| {
             let properties = unsafe { instance.get_physical_device_properties(*d) };
             properties.device_type == vk::PhysicalDeviceType::DISCRETE_GPU
         }).or_else(|| {
+            warn!("Discrete GPU was not found!");
             physical_devices.iter().find(|&d| {
                 let properties = unsafe { instance.get_physical_device_properties(*d) };
                 properties.device_type == vk::PhysicalDeviceType::INTEGRATED_GPU
             })
         }).or_else(|| {
+            warn!("Integrated GPU was not found!");
             physical_devices.iter().find(|&d| {
                 let properties = unsafe { instance.get_physical_device_properties(*d) };
                 properties.device_type == vk::PhysicalDeviceType::CPU
@@ -153,7 +150,7 @@ impl VulkanBackend {
         let queue_family_properties = unsafe { instance.get_physical_device_queue_family_properties(physical_device) };
         let queue_family_index = queue_family_properties.iter().enumerate().find(|(_, p)| {
             let support_graphics = p.queue_flags.contains(vk::QueueFlags::GRAPHICS) ;
-            let support_presentation = unsafe { surface_loader.get_physical_device_surface_support(physical_device, 0, surface) }.unwrap();
+            let support_presentation = surface_wrapper.query_presentation_support(physical_device);
 
             support_graphics && support_presentation
         }).map(|(i, _)| i as u32).unwrap_or_else(|| {
@@ -170,7 +167,6 @@ impl VulkanBackend {
             .enabled_extension_names(&device_extensions);
 
         let device = caps_checker.create_device(&instance, physical_device, &mut device_create_info)?;
-        let device = Arc::new(device);
 
         let queue = unsafe { device.get_device_queue(queue_family_index, 0) };
         let command_pool = VkCommandPool::new(device.clone(), queue_family_index);
@@ -186,7 +182,7 @@ impl VulkanBackend {
         let mut resource_manager = ResourceManager::new(&instance, physical_device, device.clone(), queue, &command_pool);
 
         let extent = Extent2D { width: window_size.width, height: window_size.height };
-        let swapchain_wrapper = SwapchainWrapper::new(&instance, &device, physical_device, extent, surface, &surface_loader, None)?;
+        let swapchain_wrapper = SwapchainWrapper::new(&instance, &device, physical_device, extent, &surface_wrapper, None)?;
         let render_pass = RenderPassWrapper::new(device.clone(), swapchain_wrapper.get_surface_format(), &mut resource_manager);
         let render_pass_resources = render_pass.create_render_pass_resources(swapchain_wrapper.get_image_views(),
                                                                          swapchain_wrapper.get_extent(), &mut resource_manager);
@@ -199,8 +195,7 @@ impl VulkanBackend {
             app,
             instance, 
 
-            surface_loader,
-            surface,
+            surface: surface_wrapper,
             debug_utils,
 
             physical_device,
@@ -236,7 +231,7 @@ impl VulkanBackend {
 
         // 2. Recreate swapchain
         let old_format = self.swapchain_wrapper.get_surface_format();
-        unsafe { self.swapchain_wrapper.recreate(&self.instance, &self.device, self.physical_device, new_extent, self.surface, &self.surface_loader).unwrap() };
+        unsafe { self.swapchain_wrapper.recreate(&self.instance, self.physical_device, new_extent, &self.surface).unwrap() };
         let new_format = self.swapchain_wrapper.get_surface_format();
         if new_format != old_format {
             unimplemented!("Swapchain returned the wrong format");
@@ -348,9 +343,6 @@ impl Drop for VulkanBackend {
         info!("vulkan: drop");
         self.wait_idle();
         unsafe { self.render_pass_resources.destroy(&mut self.resource_manager); }
-        // render pass
-        unsafe { self.render_pass.destroy(); }
-        unsafe { self.swapchain_wrapper.destroy(); }
 
         for semaphore in self.image_available_semaphores {
             unsafe { self.device.destroy_semaphore(semaphore, None); }
@@ -361,15 +353,6 @@ impl Drop for VulkanBackend {
         for fence in self.fences {
             unsafe { self.device.destroy_fence(fence, None); }
         }
-
-        unsafe {self.resource_manager.destroy(); }
-
-        unsafe { self.command_pool.destroy(); }
-        unsafe { self.device.destroy_device(None) };
-        unsafe { self.surface_loader.destroy_surface(self.surface, None)};
-        unsafe { self.debug_utils.destroy() };
-        unsafe { self.instance.destroy_instance(None) };
-
     }
 }
 

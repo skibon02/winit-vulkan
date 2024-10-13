@@ -1,78 +1,14 @@
-pub mod image;
-pub mod command_pool;
-
-use core::slice;
-use std::{collections::BTreeSet, ffi::{CStr}};
-
-use ash::{vk::{self, DebugUtilsMessageSeverityFlagsEXT, DebugUtilsMessageTypeFlagsEXT, DebugUtilsMessengerCreateInfoEXT}, Instance, Entry};
-use log::{error, info, warn, debug};
+use std::collections::BTreeSet;
+use std::ffi::CStr;
+use std::slice;
+use std::sync::Arc;
+use ash::{vk, Entry};
+use log::{info, warn};
 use sparkles_macro::range_event_start;
+use crate::vulkan_backend::wrappers::device::{VkDevice, VkDeviceRef};
+use crate::vulkan_backend::wrappers::instance::VkInstance;
 
-pub struct DebugUtilsHelper {
-    debug_utils_h: ash::ext::debug_utils::Instance,
-    debug_utils_messenger_h: vk::DebugUtilsMessengerEXT
-}
-
-unsafe extern "system" fn vulkan_debug_callback(
-    message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
-    message_type: vk::DebugUtilsMessageTypeFlagsEXT,
-    p_callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT,
-    _user_data: *mut std::ffi::c_void,
-    ) -> vk::Bool32 {
-    let callback_data = unsafe { &*p_callback_data };
-    let msg = unsafe { std::ffi::CStr::from_ptr(callback_data.p_message) };
-    match message_severity {
-        vk::DebugUtilsMessageSeverityFlagsEXT::ERROR => {
-            error!("{:?}: {}", message_type, msg.to_str().unwrap());
-        },
-        vk::DebugUtilsMessageSeverityFlagsEXT::INFO => {
-            info!("{:?}: {}", message_type, msg.to_str().unwrap());
-        },
-        vk::DebugUtilsMessageSeverityFlagsEXT::WARNING => {
-            warn!("{:?}: {}", message_type, msg.to_str().unwrap());
-        },
-        vk::DebugUtilsMessageSeverityFlagsEXT::VERBOSE => {
-            debug!("{:?}: {}", message_type, msg.to_str().unwrap());
-        },
-        _ => {}
-    }
-    vk::FALSE
-}
-
-impl DebugUtilsHelper {
-    /// May be used AFTER instance is created
-    pub fn new(entry: &Entry, instance: &Instance) -> anyhow::Result<DebugUtilsHelper> {
-
-        let debug_utils_h = ash::ext::debug_utils::Instance::new(entry, instance);
-
-        let debug_utils_messenger_h = unsafe { 
-            debug_utils_h.create_debug_utils_messenger(
-                &Self::get_messenger_create_info(), None) }?;
-
-
-        Ok(DebugUtilsHelper {
-            debug_utils_messenger_h,
-            debug_utils_h
-        })
-    }
-
-    /// May be used during instance creation
-    pub fn get_messenger_create_info() -> DebugUtilsMessengerCreateInfoEXT<'static> {
-        let debug_messenger_create_info = vk::DebugUtilsMessengerCreateInfoEXT::default()
-            .message_severity(DebugUtilsMessageSeverityFlagsEXT::INFO | DebugUtilsMessageSeverityFlagsEXT::WARNING | DebugUtilsMessageSeverityFlagsEXT::ERROR)
-            .message_type(DebugUtilsMessageTypeFlagsEXT::GENERAL | DebugUtilsMessageTypeFlagsEXT::VALIDATION | DebugUtilsMessageTypeFlagsEXT::PERFORMANCE)
-            .pfn_user_callback(Some(vulkan_debug_callback));
-        debug_messenger_create_info
-    }
-
-    // Safety: valid only in drop! (No usage after this call)
-    pub unsafe fn destroy(&mut self) {
-        unsafe { self.debug_utils_h.destroy_debug_utils_messenger(self.debug_utils_messenger_h, None) };
-
-    }
-}
-
-
+/// Helper for creating Instance and Device
 pub struct CapabilitiesChecker {
     activated_layers: BTreeSet<String>,
     activated_instance_extensions: BTreeSet<String>,
@@ -88,13 +24,14 @@ impl CapabilitiesChecker {
         }
     }
 
-    pub fn create_instance(&mut self, entry: &ash::Entry, create_info: &mut vk::InstanceCreateInfo) -> anyhow::Result<ash::Instance> {
+    pub fn create_instance(&mut self, create_info: &mut vk::InstanceCreateInfo) -> anyhow::Result<VkInstance> {
         let g = range_event_start!("[VulkanHelpers] Create instance");
         let requested_layers = unsafe {slice::from_raw_parts(create_info.pp_enabled_layer_names, create_info.enabled_layer_count as usize)};
         let requested_layers: Vec<_> = requested_layers.iter()
             .map(|layer| unsafe { CStr::from_ptr(*layer) })
             .collect();
 
+        let entry = Entry::linked();
         let supported_layers = unsafe { entry.enumerate_instance_layer_properties() }?;
 
         let filtered_layers: Vec<_> = requested_layers.iter().filter(|l| {
@@ -112,7 +49,7 @@ impl CapabilitiesChecker {
             warn!("Layer {name} is not supported!");
             false
         }).map(|layer| layer.as_ptr())
-        .collect();
+            .collect();
 
 
         let requested_extensions = unsafe {slice::from_raw_parts(create_info.pp_enabled_extension_names, create_info.enabled_extension_count as usize)};
@@ -153,10 +90,10 @@ impl CapabilitiesChecker {
             info!("Activated instance extension: {}", e);
         }
 
-        Ok(instance)
+        Ok(VkInstance::new(instance))
     }
 
-    pub fn create_device(&mut self, instance: &ash::Instance, physical_device: vk::PhysicalDevice, create_info: &mut vk::DeviceCreateInfo) -> anyhow::Result<ash::Device> {
+    pub fn create_device(&mut self, instance: &ash::Instance, physical_device: vk::PhysicalDevice, create_info: &mut vk::DeviceCreateInfo) -> anyhow::Result<VkDeviceRef> {
         let g = range_event_start!("[VulkanHelpers] Create device");
         let requested_extensions = unsafe {slice::from_raw_parts(create_info.pp_enabled_extension_names, create_info.enabled_extension_count as usize)};
         let requested_extensions: Vec<_> = requested_extensions.iter()
@@ -190,7 +127,7 @@ impl CapabilitiesChecker {
             info!("Activated device extension: {}", e);
         }
 
-        Ok(device)
+        Ok(VkDevice::new(device).into())
     }
 }
 

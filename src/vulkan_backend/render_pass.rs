@@ -1,16 +1,19 @@
-use std::mem::take;
-use std::sync::Arc;
+
 use ash::{vk, Device};
-use ash::vk::{AccessFlags, Buffer, CommandBufferBeginInfo, DescriptorSetLayout, DeviceMemory, Extent2D, Format, Framebuffer, Image, ImageAspectFlags, ImageTiling, ImageUsageFlags, ImageView, MemoryAllocateInfo, MemoryType, PipelineBindPoint, PipelineStageFlags, PrimitiveTopology, RenderPass, RenderPassBeginInfo, SampleCountFlags};
+use ash::vk::{AccessFlags, Buffer, CommandBufferBeginInfo, Extent2D, Format, Framebuffer, ImageAspectFlags, 
+              ImageTiling, ImageUsageFlags, ImageView, PipelineBindPoint, PipelineStageFlags, PrimitiveTopology, 
+              RenderPass, RenderPassBeginInfo};
 use sparkles_macro::range_event_start;
 use crate::use_shader;
 use crate::vulkan_backend::descriptor_sets::DescriptorSets;
-use crate::vulkan_backend::helpers::image::{image_2d_info, imageview_info_for_image};
+use crate::vulkan_backend::wrappers::image::imageview_info_for_image;
 use crate::vulkan_backend::pipeline::{PipelineDesc, VertexInputDesc, VulkanPipeline};
 use crate::vulkan_backend::resource_manager::{ImageResource, ResourceManager};
+use crate::vulkan_backend::wrappers::device::VkDeviceRef;
 
+// this one depends on swapchain
 pub struct RenderPassResources {
-    device: Arc<Device>,
+    device: VkDeviceRef,
     pub framebuffers: Vec<Framebuffer>,
     pub depth_images: Vec<ImageResource>,
     pub depth_image_views: Vec<ImageView>,
@@ -33,14 +36,14 @@ impl RenderPassResources {
 }
 
 pub struct RenderPassWrapper {
-    device: Arc<Device>,
+    device: VkDeviceRef,
     render_pass: RenderPass,
     descriptor_sets: DescriptorSets,
     pipeline: VulkanPipeline,
 }
 
 impl RenderPassWrapper {
-    pub fn new(device: Arc<Device>, surface_format: Format, resource_manager: &mut ResourceManager) -> Self {
+    pub fn new(device: VkDeviceRef, surface_format: Format, resource_manager: &mut ResourceManager) -> Self {
         let g = range_event_start!("Create render pass");
 
         let render_pass = {
@@ -111,6 +114,7 @@ impl RenderPassWrapper {
     pub fn update(&mut self, resource_manager: &mut ResourceManager, color: [f32; 3]) {
         self.descriptor_sets.update(resource_manager, color);
     }
+
     pub fn create_render_pass_resources(&self, image_views: Vec<ImageView>, extent: Extent2D, resource_manager: &mut ResourceManager) -> RenderPassResources {
         // create imageviews for depth attachments
         let depth_images: Vec<_> = (0..image_views.len()).map(|_| {
@@ -185,8 +189,10 @@ impl RenderPassWrapper {
             device.end_command_buffer(command_buffer).unwrap();
         }
     }
+}
 
-    pub unsafe fn destroy(&mut self) {
+impl Drop for RenderPassWrapper {
+    fn drop(&mut self) {
         unsafe { self.pipeline.destroy(); }
         unsafe { self.descriptor_sets.destroy() };
         //render pass

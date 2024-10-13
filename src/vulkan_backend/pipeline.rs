@@ -10,9 +10,10 @@ use ash::vk::{ColorComponentFlags, CompareOp, CullModeFlags, DescriptorSetLayout
               PrimitiveTopology, RenderPass, SampleCountFlags, ShaderModuleCreateInfo, ShaderStageFlags,
               VertexInputAttributeDescription, VertexInputBindingDescription};
 use sparkles_macro::range_event_start;
+use crate::vulkan_backend::wrappers::device::VkDeviceRef;
 
 pub struct VulkanPipeline {
-    device: Arc<Device>,
+    device: VkDeviceRef,
     pipeline: Pipeline,
     pipeline_layout: PipelineLayout,
     pipeline_cache: PipelineCache,
@@ -102,7 +103,7 @@ impl<'a> PipelineDesc<'a> {
 }
 
 impl VulkanPipeline {
-    pub fn new(device: Arc<Device>, render_pass: &RenderPass, desc: PipelineDesc, mut vert_desc: VertexInputDesc,
+    pub fn new(device: VkDeviceRef, render_pass: &RenderPass, desc: PipelineDesc, mut vert_desc: VertexInputDesc,
         descriptor_set_layout: DescriptorSetLayout) -> VulkanPipeline {
         let g = range_event_start!("Create pipeline");
         // no descriptor sets
