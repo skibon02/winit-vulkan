@@ -3,6 +3,7 @@ pub mod helpers;
 pub mod resource_manager;
 pub mod pipeline;
 pub mod render_pass;
+pub mod descriptor_sets;
 
 use swapchain_wrapper::SwapchainWrapper;
 
@@ -11,19 +12,24 @@ use log::{error, info, warn};
 use winit::window::Window;
 
 use ash::{Device, Entry, Instance};
-use ash::vk::{self, make_api_version, ApplicationInfo, Buffer, BufferCreateInfo, BufferUsageFlags, CommandBuffer, CommandBufferBeginInfo, DeviceMemory, Extent2D, FenceCreateFlags, Framebuffer, MemoryAllocateInfo, MemoryMapFlags, MemoryType, PhysicalDevice, Queue, RenderPassBeginInfo, Semaphore, SharingMode, SurfaceKHR};
+use ash::vk::{self, make_api_version, ApplicationInfo, Buffer, BufferUsageFlags, CommandBuffer, CommandBufferBeginInfo, DeviceMemory, Extent2D, FenceCreateFlags, Framebuffer, MemoryAllocateInfo, MemoryMapFlags, MemoryType, PhysicalDevice, Queue, RenderPassBeginInfo, Semaphore, SharingMode, SurfaceKHR};
 
 use std::ffi::{c_char, CString};
-use std::{mem, slice};
+use std::array::from_fn;
+use std::sync::Arc;
 use ash_window::create_surface;
 use sparkles_macro::{instant_event, range_event_start};
 use winit::dpi::PhysicalSize;
 use winit::raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use helpers::{CapabilitiesChecker, DebugUtilsHelper};
 use render_pass::RenderPassWrapper;
+use crate::app::App;
+use crate::vulkan_backend::helpers::command_pool::VkCommandPool;
 use crate::vulkan_backend::render_pass::RenderPassResources;
+use crate::vulkan_backend::resource_manager::{BufferResource, ResourceManager};
 
 pub struct VulkanBackend {
+    app: App,
     instance: Instance,
 
     debug_utils: DebugUtilsHelper,
@@ -32,64 +38,35 @@ pub struct VulkanBackend {
     surface: SurfaceKHR,
 
     physical_device: PhysicalDevice,
-    device: Device,
+    device: Arc<Device>,
     queue: Queue,
-    command_pool: vk::CommandPool,
+    command_pool: VkCommandPool,
 
-    mem_types: Vec<MemoryType>,
+    resource_manager: ResourceManager,
 
-    // 2 semaphores because at most 2 images can be acquired at the same time for the rendering operation
-    command_buffers: Vec<CommandBuffer>,
-    image_available_semaphores: [Semaphore; 2],
-    render_finished_semaphores: [Semaphore; 2],
-    fences: [vk::Fence; 2],
+    // 3 instances of command buffer for each swapchain image
+    command_buffers: [CommandBuffer; 3],
+    image_available_semaphores: [Semaphore; 3],
+    render_finished_semaphores: [Semaphore; 3],
+    fences: [vk::Fence; 3],
+    cur_command_buffer: usize,
+    command_buffer_last_index: [Option<usize>; 3],
 
     swapchain_wrapper: SwapchainWrapper,
 
     // stuff for actual rendering
     render_pass: RenderPassWrapper,
     render_pass_resources: RenderPassResources,
-    vertex_buffer: (Buffer, DeviceMemory),
-
-    cur_frame: usize
+    vertex_buffer: BufferResource,
 }
 
-// Create buffer for 3 vertecies 4*6 bytes each
-fn create_vertex_buffer(device: &Device, mem_types: &Vec<MemoryType>) -> (vk::Buffer, vk::DeviceMemory) {
-    let total_bytes = 4*6*3;
-    let buffer = unsafe { device.create_buffer(&BufferCreateInfo::default()
-        .sharing_mode(SharingMode::EXCLUSIVE)
-        .size(total_bytes)
-        .usage(BufferUsageFlags::VERTEX_BUFFER), None).unwrap() };
-    let buffer_memory_requirement = unsafe { device.get_buffer_memory_requirements(buffer) };
-    let mem_type_i = mem_types.iter().enumerate().position(|(i, memory_type)| {
-        buffer_memory_requirement.memory_type_bits & (1 << i) != 0 && memory_type.property_flags.contains(vk::MemoryPropertyFlags::HOST_COHERENT)
-    }).unwrap();
-    let alloc_info = MemoryAllocateInfo::default()
-        .allocation_size(buffer_memory_requirement.size)
-        .memory_type_index(mem_type_i as u32);
 
-    let buf_memory = unsafe { device.allocate_memory(&alloc_info, None) }.unwrap();
-    unsafe { device.bind_buffer_memory(buffer, buf_memory, 0).unwrap(); }
-
-    //fill with data
-    let data: [f32; 6*3] = [0.0, 0.0, 0.0, 1.0, 0.0, 1.0,
-                    0.5, 1.0, 0.0, 0.0, 1.0, 1.0,
-                    1.0, 0.0, 0.0, 1.0, 1.0, 0.0];
-
-    let ptr = unsafe { device.map_memory(buf_memory, 0, total_bytes, MemoryMapFlags::empty()) }.unwrap();
-    let mapped = unsafe { slice::from_raw_parts_mut(ptr as *mut f32, data.len()) };
-    mapped.copy_from_slice(&data);
-    unsafe { device.unmap_memory(buf_memory); }
-
-    (buffer, buf_memory)
-}
 
 impl VulkanBackend {
     /// Initialize vulkan resources and use window to create surface
     ///
     /// Must be called from main thread!
-    pub fn new_for_window(window: &Window) -> anyhow::Result<Self> {
+    pub fn new_for_window(window: &Window, app: App) -> anyhow::Result<Self> {
         let g = range_event_start!("[Vulkan] INIT");
         // we need window_handle to create Vulkan surface
         let window_handle = window.raw_window_handle()?;
@@ -193,47 +170,33 @@ impl VulkanBackend {
             .enabled_extension_names(&device_extensions);
 
         let device = caps_checker.create_device(&instance, physical_device, &mut device_create_info)?;
+        let device = Arc::new(device);
 
         let queue = unsafe { device.get_device_queue(queue_family_index, 0) };
-        let command_pool = unsafe { device.create_command_pool(&vk::CommandPoolCreateInfo::default()
-            .queue_family_index(queue_family_index)
-            .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER), None)
-        }.context("Command pool creation")?;
+        let command_pool = VkCommandPool::new(device.clone(), queue_family_index);
+        let command_buffers = command_pool.alloc_command_buffers(3);
 
-        let command_buffer_count = 2;
-        let command_buffers = unsafe {
-            device.allocate_command_buffers(&vk::CommandBufferAllocateInfo::default()
-                .command_pool(command_pool)
-                .level(vk::CommandBufferLevel::PRIMARY)
-                .command_buffer_count(command_buffer_count)).unwrap()
-        };
+        let image_available_semaphores = from_fn(|_| unsafe { device.create_semaphore(&vk::SemaphoreCreateInfo::default(), None).unwrap() });
+        let render_finished_semaphores = from_fn(|_| unsafe { device.create_semaphore(&vk::SemaphoreCreateInfo::default(), None).unwrap() });
 
-        let image_available_semaphores = [
-            unsafe { device.create_semaphore(&vk::SemaphoreCreateInfo::default(), None).unwrap() },
-            unsafe { device.create_semaphore(&vk::SemaphoreCreateInfo::default(), None).unwrap() }
-        ];
 
-        let render_finished_semaphores = [
-            unsafe { device.create_semaphore(&vk::SemaphoreCreateInfo::default(), None).unwrap() },
-            unsafe { device.create_semaphore(&vk::SemaphoreCreateInfo::default(), None).unwrap() }
-        ];
+        let fences = from_fn(|_| unsafe { device.create_fence(&vk::FenceCreateInfo::default().flags(FenceCreateFlags::SIGNALED), None).unwrap() });
 
-        let fences = [
-            unsafe { device.create_fence(&vk::FenceCreateInfo::default().flags(FenceCreateFlags::SIGNALED), None).unwrap() },
-            unsafe { device.create_fence(&vk::FenceCreateInfo::default().flags(FenceCreateFlags::SIGNALED), None).unwrap() }
-        ];
 
-        let mem_props = unsafe { instance.get_physical_device_memory_properties(physical_device) };
-        let mem_types = mem_props.memory_types.to_vec();
+        let mut resource_manager = ResourceManager::new(&instance, physical_device, device.clone(), queue, &command_pool);
 
         let extent = Extent2D { width: window_size.width, height: window_size.height };
         let swapchain_wrapper = SwapchainWrapper::new(&instance, &device, physical_device, extent, surface, &surface_loader, None)?;
-        let render_pass = RenderPassWrapper::new(&device, swapchain_wrapper.get_surface_format());
-        let render_pass_resources = render_pass.create_render_pass_resources(&device,
-                             swapchain_wrapper.get_image_views(), swapchain_wrapper.get_extent(), &mem_types);
+        let render_pass = RenderPassWrapper::new(device.clone(), swapchain_wrapper.get_surface_format(), &mut resource_manager);
+        let render_pass_resources = render_pass.create_render_pass_resources(swapchain_wrapper.get_image_views(),
+                                                                         swapchain_wrapper.get_extent(), &mut resource_manager);
 
-        let vertex_buffer = create_vertex_buffer(&device, &mem_types);
+        let vertex_buffer = resource_manager.create_buffer(3*4*6, BufferUsageFlags::VERTEX_BUFFER);
+        let vertex_data = app.get_vertex_data();
+
+        resource_manager.fill_buffer(vertex_buffer, &vertex_data);
         Ok(VulkanBackend {
+            app,
             instance, 
 
             surface_loader,
@@ -245,20 +208,19 @@ impl VulkanBackend {
             queue,
             command_pool,
 
+            resource_manager,
+
             swapchain_wrapper,
-
-            mem_types,
-
-            command_buffers,
+            command_buffers: command_buffers.try_into().unwrap(),
             image_available_semaphores,
             render_finished_semaphores,
             fences,
+            cur_command_buffer: 0,
+            command_buffer_last_index: [None; 3],
 
             render_pass,
             render_pass_resources,
             vertex_buffer,
-
-            cur_frame: 0
         })
     }
 
@@ -266,8 +228,11 @@ impl VulkanBackend {
         let new_extent = Extent2D {width: new_extent.width, height: new_extent.height };
         self.wait_idle();
 
+        //clear states
+        self.command_buffer_last_index = [None; 3];
+
         // 1. Destroy swapchain dependent resources
-        unsafe { self.render_pass_resources.destroy(&self.device); }
+        unsafe { self.render_pass_resources.destroy(&mut self.resource_manager); }
 
         // 2. Recreate swapchain
         let old_format = self.swapchain_wrapper.get_surface_format();
@@ -278,21 +243,23 @@ impl VulkanBackend {
         }
 
         // 3. Recreate swapchain_dependent resources
-        self.render_pass_resources = self.render_pass.create_render_pass_resources(&self.device,
-            self.swapchain_wrapper.get_image_views(), self.swapchain_wrapper.get_extent(), &self.mem_types);
+        self.render_pass_resources = self.render_pass.create_render_pass_resources(
+            self.swapchain_wrapper.get_image_views(), self.swapchain_wrapper.get_extent(), &mut self.resource_manager);
     }
 
     pub fn render(&mut self) -> anyhow::Result<()> {
         let g = range_event_start!("[Vulkan] render");
-        let frame_index = self.cur_frame;
-        self.cur_frame = (frame_index + 1) % 2;
+        let frame_index = self.cur_command_buffer;
+        self.cur_command_buffer = (frame_index + 1) % 3;
+        let cur_fence = self.fences[frame_index];
+        let cur_command_buffer = self.command_buffers[frame_index];
 
         // 1) Acquire next image
         let (image_index, is_suboptimal) = unsafe {
             let g = range_event_start!("[Vulkan] Wait for fences...");
-            self.device.wait_for_fences(&[self.fences[frame_index]], true, u64::MAX).unwrap();
+            self.device.wait_for_fences(&[cur_fence], true, u64::MAX).unwrap();
             drop(g);
-            self.device.reset_fences(&[self.fences[frame_index]]).unwrap();
+            self.device.reset_fences(&[cur_fence]).unwrap();
             let g = range_event_start!("[Vulkan] Acquire next image...");
             let res = self.swapchain_wrapper.swapchain_loader.acquire_next_image(
                 self.swapchain_wrapper.get_swapchain(),
@@ -308,17 +275,25 @@ impl VulkanBackend {
             warn!("Swapchain is suboptimal!");
         }
 
-        // 2) record command buffer
-        self.render_pass.record_draw(&self.device, self.command_buffers[frame_index],
-                                     self.render_pass_resources.framebuffers[image_index as usize],
-                                     self.vertex_buffer.0,
-                                     self.swapchain_wrapper.get_extent());
+        // 2) Update
+        let g = range_event_start!("[Vulkan] Update");
+        self.render_pass.update(&mut self.resource_manager, self.app.new_frame());
+        drop(g);
+
+        // 3) record command buffer (if index was changed)
+        if self.command_buffer_last_index[frame_index] != Some(image_index as usize) {
+            self.render_pass.record_draw(&self.device, cur_command_buffer,
+                                         self.render_pass_resources.framebuffers[image_index as usize],
+                                         self.vertex_buffer.buffer,
+                                         self.swapchain_wrapper.get_extent());
+            self.command_buffer_last_index[frame_index] = Some(image_index as usize);
+        };
 
         let g = range_event_start!("[Vulkan] Submit command buffer");
-        // 2.1) submit command buffer
+        // 3.1) submit command buffer
         let wait_semaphores = [self.image_available_semaphores[frame_index]];
         let wait_dst_stage_mask = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
-        let command_buffers = [self.command_buffers[frame_index]];
+        let command_buffers = [cur_command_buffer];
         let signal_semaphores = [self.render_finished_semaphores[frame_index]];
         let submit_infos = [vk::SubmitInfo::default()
             .wait_semaphores(&wait_semaphores)
@@ -333,7 +308,7 @@ impl VulkanBackend {
         }
         drop(g);
 
-        //3) present
+        // 4) present
         let g = range_event_start!("[Vulkan] Queue present");
         let swapchains = [self.swapchain_wrapper.get_swapchain()];
         let semaphores = [self.render_finished_semaphores[frame_index]];
@@ -355,8 +330,6 @@ impl VulkanBackend {
                 }
             }
         }
-        drop(g);
-
         Ok(())
     }
 
@@ -374,15 +347,10 @@ impl Drop for VulkanBackend {
     fn drop(&mut self) {
         info!("vulkan: drop");
         self.wait_idle();
-        unsafe { self.render_pass_resources.destroy(&self.device); }
+        unsafe { self.render_pass_resources.destroy(&mut self.resource_manager); }
         // render pass
-        unsafe { self.render_pass.destroy(&self.device); }
+        unsafe { self.render_pass.destroy(); }
         unsafe { self.swapchain_wrapper.destroy(); }
-
-
-        // input buffer
-        unsafe { self.device.free_memory(self.vertex_buffer.1, None); }
-        unsafe { self.device.destroy_buffer(self.vertex_buffer.0, None); }
 
         for semaphore in self.image_available_semaphores {
             unsafe { self.device.destroy_semaphore(semaphore, None); }
@@ -394,7 +362,9 @@ impl Drop for VulkanBackend {
             unsafe { self.device.destroy_fence(fence, None); }
         }
 
-        unsafe { self.device.destroy_command_pool(self.command_pool, None) };
+        unsafe {self.resource_manager.destroy(); }
+
+        unsafe { self.command_pool.destroy(); }
         unsafe { self.device.destroy_device(None) };
         unsafe { self.surface_loader.destroy_surface(self.surface, None)};
         unsafe { self.debug_utils.destroy() };

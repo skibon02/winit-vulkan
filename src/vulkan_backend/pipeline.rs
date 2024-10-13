@@ -1,9 +1,18 @@
 use std::ffi::CStr;
+use std::sync::Arc;
 use ash::Device;
-use ash::vk::{ColorComponentFlags, CompareOp, CullModeFlags, DynamicState, Format, GraphicsPipelineCreateInfo, Pipeline, PipelineCache, PipelineCacheCreateInfo, PipelineColorBlendAttachmentState, PipelineColorBlendStateCreateInfo, PipelineDepthStencilStateCreateInfo, PipelineDynamicStateCreateInfo, PipelineInputAssemblyStateCreateInfo, PipelineLayout, PipelineLayoutCreateInfo, PipelineMultisampleStateCreateInfo, PipelineRasterizationStateCreateInfo, PipelineShaderStageCreateInfo, PipelineVertexInputStateCreateFlags, PipelineVertexInputStateCreateInfo, PipelineViewportStateCreateInfo, PolygonMode, PrimitiveTopology, Rect2D, RenderPass, SampleCountFlags, ShaderModuleCreateInfo, ShaderStageFlags, VertexInputAttributeDescription, VertexInputBindingDescription, Viewport};
+use ash::vk::{ColorComponentFlags, CompareOp, CullModeFlags, DescriptorSetLayout, DynamicState,
+              Format, GraphicsPipelineCreateInfo, Pipeline, PipelineCache, PipelineCacheCreateInfo,
+              PipelineColorBlendAttachmentState, PipelineColorBlendStateCreateInfo, PipelineDepthStencilStateCreateInfo,
+              PipelineDynamicStateCreateInfo, PipelineInputAssemblyStateCreateInfo, PipelineLayout,
+              PipelineLayoutCreateInfo, PipelineMultisampleStateCreateInfo, PipelineRasterizationStateCreateInfo,
+              PipelineShaderStageCreateInfo, PipelineVertexInputStateCreateInfo, PipelineViewportStateCreateInfo,
+              PrimitiveTopology, RenderPass, SampleCountFlags, ShaderModuleCreateInfo, ShaderStageFlags,
+              VertexInputAttributeDescription, VertexInputBindingDescription};
 use sparkles_macro::range_event_start;
 
 pub struct VulkanPipeline {
+    device: Arc<Device>,
     pipeline: Pipeline,
     pipeline_layout: PipelineLayout,
     pipeline_cache: PipelineCache,
@@ -93,10 +102,13 @@ impl<'a> PipelineDesc<'a> {
 }
 
 impl VulkanPipeline {
-    pub fn new(device: &Device, render_pass: &RenderPass, desc: PipelineDesc, mut vert_desc: VertexInputDesc) -> VulkanPipeline {
+    pub fn new(device: Arc<Device>, render_pass: &RenderPass, desc: PipelineDesc, mut vert_desc: VertexInputDesc,
+        descriptor_set_layout: DescriptorSetLayout) -> VulkanPipeline {
         let g = range_event_start!("Create pipeline");
         // no descriptor sets
-        let pipeline_layout_info = PipelineLayoutCreateInfo::default();
+        let set_layoutst = [descriptor_set_layout];
+        let pipeline_layout_info = PipelineLayoutCreateInfo::default()
+            .set_layouts(&set_layoutst);
         let pipeline_layout = unsafe { device.create_pipeline_layout(&pipeline_layout_info, None).unwrap() };
 
         // shaders
@@ -176,6 +188,8 @@ impl VulkanPipeline {
         unsafe { device.destroy_shader_module(frag_module, None); }
 
         VulkanPipeline {
+            device,
+            
             pipeline,
             pipeline_layout,
             pipeline_cache
@@ -186,9 +200,13 @@ impl VulkanPipeline {
         self.pipeline
     }
 
-    pub unsafe fn destroy(&mut self, device: &Device) {
-        device.destroy_pipeline_layout(self.pipeline_layout, None);
-        device.destroy_pipeline_cache(self.pipeline_cache, None);
-        device.destroy_pipeline(self.pipeline, None);
+    pub fn get_pipeline_layout(&self) -> PipelineLayout {
+        self.pipeline_layout
+    }
+
+    pub unsafe fn destroy(&mut self) {
+        self.device.destroy_pipeline_layout(self.pipeline_layout, None);
+        self.device.destroy_pipeline_cache(self.pipeline_cache, None);
+        self.device.destroy_pipeline(self.pipeline, None);
     }
 }

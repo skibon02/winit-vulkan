@@ -1,4 +1,5 @@
 pub mod image;
+pub mod command_pool;
 
 use core::slice;
 use std::{collections::BTreeSet, ffi::{CStr}};

@@ -1,6 +1,6 @@
 use ash::{vk, Device, Instance};
 use ash::khr::{surface, swapchain};
-use ash::vk::{Extent2D, Format, Image, ImageAspectFlags, ImageUsageFlags, ImageView, PhysicalDevice, SampleCountFlags, SurfaceKHR, SwapchainKHR};
+use ash::vk::{Extent2D, Format, Image, ImageAspectFlags, ImageTiling, ImageUsageFlags, ImageView, PhysicalDevice, SampleCountFlags, SurfaceKHR, SwapchainKHR};
 use log::info;
 use sparkles_macro::range_event_start;
 use crate::vulkan_backend::helpers::image::{image_2d_info, imageview_info_for_image, swapchain_info};
@@ -57,7 +57,8 @@ impl SwapchainWrapper {
 
 
         let swapchain_loader = swapchain::Device::new(instance, device);
-        let swapchain_image_info = image_2d_info(surface_format.format, ImageUsageFlags::COLOR_ATTACHMENT, swapchain_extent, SampleCountFlags::TYPE_1);
+        let swapchain_image_info = image_2d_info(surface_format.format, ImageUsageFlags::COLOR_ATTACHMENT,
+                                             swapchain_extent, SampleCountFlags::TYPE_1, ImageTiling::OPTIMAL);
         let swapchain_create_info = swapchain_info(swapchain_image_info, surface_format.color_space)
             .surface(surface)
             .min_image_count(image_count)

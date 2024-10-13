@@ -1,45 +1,46 @@
 use std::mem::take;
+use std::sync::Arc;
 use ash::{vk, Device};
-use ash::vk::{AccessFlags, Buffer, CommandBufferBeginInfo, DeviceMemory, Extent2D, Format, Framebuffer, Image, ImageAspectFlags, ImageUsageFlags, ImageView, MemoryAllocateInfo, MemoryType, PipelineBindPoint, PipelineStageFlags, PrimitiveTopology, RenderPass, RenderPassBeginInfo, SampleCountFlags};
+use ash::vk::{AccessFlags, Buffer, CommandBufferBeginInfo, DescriptorSetLayout, DeviceMemory, Extent2D, Format, Framebuffer, Image, ImageAspectFlags, ImageTiling, ImageUsageFlags, ImageView, MemoryAllocateInfo, MemoryType, PipelineBindPoint, PipelineStageFlags, PrimitiveTopology, RenderPass, RenderPassBeginInfo, SampleCountFlags};
 use sparkles_macro::range_event_start;
 use crate::use_shader;
+use crate::vulkan_backend::descriptor_sets::DescriptorSets;
 use crate::vulkan_backend::helpers::image::{image_2d_info, imageview_info_for_image};
 use crate::vulkan_backend::pipeline::{PipelineDesc, VertexInputDesc, VulkanPipeline};
+use crate::vulkan_backend::resource_manager::{ImageResource, ResourceManager};
 
 pub struct RenderPassResources {
+    device: Arc<Device>,
     pub framebuffers: Vec<Framebuffer>,
-    pub depth_images_memory: Vec<DeviceMemory>,
-    pub depth_images: Vec<Image>,
+    pub depth_images: Vec<ImageResource>,
     pub depth_image_views: Vec<ImageView>,
 }
 
 impl RenderPassResources {
-    pub unsafe fn destroy(&mut self, device: &Device) {
+    pub unsafe fn destroy(&mut self, resource_manager: &mut ResourceManager) {
         // framebuffers
         for framebuffer in self.framebuffers.drain(..) {
-            unsafe { device.destroy_framebuffer(framebuffer, None); }
+            unsafe { self.device.destroy_framebuffer(framebuffer, None); }
         }
 
-        // depth buffer things
-        for image_view in take(&mut self.depth_image_views) {
-            unsafe { device.destroy_image_view(image_view, None) };
+        for depth_imageview in self.depth_image_views.drain(..) {
+            unsafe { self.device.destroy_image_view(depth_imageview, None)};
         }
-        for memory in take(&mut self.depth_images_memory) {
-            unsafe { device.free_memory(memory, None) };
-        }
-        for image in take(&mut self.depth_images) {
-            unsafe { device.destroy_image(image, None) };
+        for depth_image in self.depth_images.drain(..) {
+            resource_manager.destroy_image(depth_image);
         }
     }
 }
 
 pub struct RenderPassWrapper {
+    device: Arc<Device>,
     render_pass: RenderPass,
+    descriptor_sets: DescriptorSets,
     pipeline: VulkanPipeline,
 }
 
 impl RenderPassWrapper {
-    pub fn new(device: &Device, surface_format: Format) -> Self {
+    pub fn new(device: Arc<Device>, surface_format: Format, resource_manager: &mut ResourceManager) -> Self {
         let g = range_event_start!("Create render pass");
 
         let render_pass = {
@@ -91,50 +92,35 @@ impl RenderPassWrapper {
             unsafe { device.create_render_pass(&render_pass_create_info, None).unwrap() }
         };
 
+        let descriptor_sets = DescriptorSets::new(device.clone(), resource_manager);
         let pipeline_desc = PipelineDesc::new(use_shader!("solid"));
         let vert_desc = VertexInputDesc::new(PrimitiveTopology::TRIANGLE_LIST)
             .attrib_3_floats()  // 0: Pos 3D
             .attrib_3_floats();               // 1: Normal 3D
-        let pipeline = VulkanPipeline::new(device, &render_pass, pipeline_desc, vert_desc);
+        let pipeline = VulkanPipeline::new(device.clone(), &render_pass, pipeline_desc, vert_desc, descriptor_sets.get_descriptor_set_layout());
 
         Self {
+            device,
+
             render_pass,
-            pipeline
+            pipeline,
+            descriptor_sets
         }
     }
 
-    pub fn create_render_pass_resources(&self, device: &Device, image_views: Vec<ImageView>, extent: Extent2D, mem_types: &[MemoryType]) -> RenderPassResources {
+    pub fn update(&mut self, resource_manager: &mut ResourceManager, color: [f32; 3]) {
+        self.descriptor_sets.update(resource_manager, color);
+    }
+    pub fn create_render_pass_resources(&self, image_views: Vec<ImageView>, extent: Extent2D, resource_manager: &mut ResourceManager) -> RenderPassResources {
         // create imageviews for depth attachments
-        let depth_image_create_info = image_2d_info(Format::D16_UNORM, ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
-                                                    extent, SampleCountFlags::TYPE_1);
-
         let depth_images: Vec<_> = (0..image_views.len()).map(|_| {
-            unsafe { device.create_image(&depth_image_create_info, None) }.unwrap()
+            resource_manager.create_image(extent, Format::D16_UNORM, ImageTiling::OPTIMAL, ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT)
         }).collect();
 
-
-        let depth_images_memory_reqs = unsafe { device.get_image_memory_requirements(depth_images[0]) };
-
-        let mem_type_i = mem_types.iter().enumerate().position(|(i, memory_type)| {
-            depth_images_memory_reqs.memory_type_bits & (1 << i) != 0 && memory_type.property_flags.contains(vk::MemoryPropertyFlags::DEVICE_LOCAL)
-        }).unwrap();
-        let alloc_info = MemoryAllocateInfo::default()
-            .allocation_size(depth_images_memory_reqs.size)
-            .memory_type_index(mem_type_i as u32);
-
-        let depth_images_memory = (0..depth_images.len()).map(|_| {
-            unsafe { device.allocate_memory(&alloc_info, None) }.unwrap()
-        }).collect::<Vec<_>>();
-
-        for (image, memory) in depth_images.iter().zip(depth_images_memory.iter()) {
-            unsafe { device.bind_image_memory(*image, *memory, 0).unwrap() }
-        }
-
         let depth_image_views: Vec<_> = depth_images.iter().map(|image| {
-            let imageview_info =
-                imageview_info_for_image(*image, depth_image_create_info, ImageAspectFlags::DEPTH);
-
-            unsafe {device.create_image_view(&imageview_info, None).unwrap() }
+            let img_info = image.info;
+            let info = imageview_info_for_image(image.image, img_info, ImageAspectFlags::DEPTH);
+            unsafe { self.device.create_image_view(&info, None).unwrap() }
         }).collect();
 
         let framebuffers = image_views.into_iter().zip(depth_image_views.iter()).map(|(image_view, depth_imageview)| {
@@ -146,11 +132,11 @@ impl RenderPassWrapper {
                 .width(extent.width)
                 .height(extent.height)
                 .layers(1);
-            unsafe { device.create_framebuffer(&framebuffer_create_info, None).unwrap() }
+            unsafe { self.device.create_framebuffer(&framebuffer_create_info, None).unwrap() }
         }).collect::<Vec<_>>();
 
         RenderPassResources {
-            depth_images_memory,
+            device: self.device.clone(),
             depth_images,
             depth_image_views,
             framebuffers,
@@ -190,6 +176,8 @@ impl RenderPassWrapper {
             //bind
             device.cmd_bind_pipeline(command_buffer, PipelineBindPoint::GRAPHICS, self.pipeline.get_pipeline());
             device.cmd_bind_vertex_buffers(command_buffer, 0, &[vertex_buffer], &[0]);
+            let sets = [self.descriptor_sets.get_set()];
+            device.cmd_bind_descriptor_sets(command_buffer, PipelineBindPoint::GRAPHICS, self.pipeline.get_pipeline_layout(), 0, &sets, &[]);
             //draw
             device.cmd_draw(command_buffer, 3, 1, 0, 0);
             
@@ -198,9 +186,10 @@ impl RenderPassWrapper {
         }
     }
 
-    pub unsafe fn destroy(&mut self, device: &Device) {
-        unsafe { self.pipeline.destroy(device); }
+    pub unsafe fn destroy(&mut self) {
+        unsafe { self.pipeline.destroy(); }
+        unsafe { self.descriptor_sets.destroy() };
         //render pass
-        unsafe { device.destroy_render_pass(self.render_pass, None); }
+        unsafe { self.device.destroy_render_pass(self.render_pass, None); }
     }
 }

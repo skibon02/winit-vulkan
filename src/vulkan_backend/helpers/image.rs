@@ -1,5 +1,5 @@
 use ash::vk;
-use ash::vk::{ColorSpaceKHR, Extent2D, Extent3D, Format, Image, ImageAspectFlags, ImageCreateInfo, ImageSubresourceRange, ImageType, ImageUsageFlags, ImageViewCreateInfo, SampleCountFlags, SurfaceFormatKHR, SurfaceKHR, SurfaceTransformFlagsKHR, SwapchainCreateInfoKHR};
+use ash::vk::{ColorSpaceKHR, Extent2D, Extent3D, Format, Image, ImageAspectFlags, ImageCreateInfo, ImageSubresourceRange, ImageTiling, ImageType, ImageUsageFlags, ImageViewCreateInfo, SampleCountFlags, SurfaceFormatKHR, SurfaceKHR, SurfaceTransformFlagsKHR, SwapchainCreateInfoKHR};
 
 
 
@@ -11,7 +11,7 @@ use ash::vk::{ColorSpaceKHR, Extent2D, Extent3D, Format, Image, ImageAspectFlags
 /// - tiling optimal
 /// - initial layout: Undefined
 /// - type 2d
-pub fn image_2d_info<'a>(format: Format, usage: ImageUsageFlags, extent: impl Into<Extent3D>, samples: SampleCountFlags) -> ImageCreateInfo<'a> {
+pub fn image_2d_info<'a>(format: Format, usage: ImageUsageFlags, extent: impl Into<Extent3D>, samples: SampleCountFlags, tiling: ImageTiling) -> ImageCreateInfo<'a> {
     vk::ImageCreateInfo::default()
         .format(format)
         .usage(usage)
@@ -22,7 +22,7 @@ pub fn image_2d_info<'a>(format: Format, usage: ImageUsageFlags, extent: impl In
         .flags(vk::ImageCreateFlags::empty())
         .mip_levels(1)
         .sharing_mode(vk::SharingMode::EXCLUSIVE)
-        .tiling(vk::ImageTiling::OPTIMAL)
+        .tiling(tiling)
         .initial_layout(vk::ImageLayout::UNDEFINED)
         .image_type(vk::ImageType::TYPE_2D)
 }
@@ -54,7 +54,6 @@ pub fn imageview_info_for_image(image: Image, info: ImageCreateInfo, aspect: Ima
     imageview_info
 }
 
-/// Fill in 
 pub fn swapchain_info(image_info: ImageCreateInfo, color_space: ColorSpaceKHR) -> SwapchainCreateInfoKHR {
     vk::SwapchainCreateInfoKHR::default()
         .image_color_space(color_space)

@@ -1,4 +1,5 @@
 pub mod vulkan_backend;
+pub mod app;
 
 use std::time::Instant;
 use log::{error, info};
@@ -147,7 +148,7 @@ pub enum AppResult {
 impl App {
     pub fn new_winit(window: Window) -> App {
 
-        let vulkan_backend = VulkanBackend::new_for_window(&window).unwrap();
+        let vulkan_backend = VulkanBackend::new_for_window(&window, app::App::new()).unwrap();
 
         Self {
             app_finished: false,

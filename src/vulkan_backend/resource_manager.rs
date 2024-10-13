@@ -1,6 +1,8 @@
 use std::fmt::Debug;
-
-use ash::vk::{self, CommandBufferUsageFlags};
+use std::sync::Arc;
+use ash::vk::{self, CommandBufferUsageFlags, Extent2D, Extent3D, ImageCreateInfo, SampleCountFlags};
+use crate::vulkan_backend::helpers::command_pool::VkCommandPool;
+use crate::vulkan_backend::helpers::image::image_2d_info;
 
 #[derive(Debug)]
 pub enum HostAccessPolicy {
@@ -23,19 +25,19 @@ pub struct ImageResource {
     pub image: vk::Image,
     pub memory: vk::DeviceMemory,
     pub size: vk::DeviceSize,
+    pub info: ImageCreateInfo<'static>,
 
-    pub width: u32,
-    pub height: u32,
+    extent: Extent3D,
 }
 
 pub struct ResourceManager {
     pub host_access_policy: HostAccessPolicy,
-    pub buffer_resources: Vec<BufferResource>,
     staging_buffer: Option<BufferResource>,
 
-    pub image_resources: Vec<ImageResource>,
+    image_resources: Vec<ImageResource>,
+    buffer_resources: Vec<BufferResource>,
 
-    device: ash::Device,
+    device: Arc<ash::Device>,
     queue: vk::Queue,
     command_buffer: vk::CommandBuffer,
     transfer_completed_fence: vk::Fence,
@@ -44,7 +46,10 @@ pub struct ResourceManager {
 }
 
 impl ResourceManager {
-    pub fn new(instance: &ash::Instance, physical_device: vk::PhysicalDevice, device: ash::Device, queue: vk::Queue, command_buffer: vk::CommandBuffer) -> Self {
+    pub fn new(instance: &ash::Instance, physical_device: vk::PhysicalDevice, device: Arc<ash::Device>, queue: vk::Queue, command_pool: &VkCommandPool) -> Self {
+        // allocate command buffer
+        let command_buffer = command_pool.alloc_command_buffers(1)[0];
+
         //query memory properties info
         let memory_properties = unsafe {instance.get_physical_device_memory_properties(physical_device)};
 
@@ -126,18 +131,17 @@ impl ResourceManager {
 
         let memory_requirements = unsafe {self.device.get_buffer_memory_requirements(buffer)};
 
-        let memory_allocate_info = match self.host_access_policy {
+        let memory_type = match self.host_access_policy {
             HostAccessPolicy::SingleBuffer(memory_type) => {
-                vk::MemoryAllocateInfo::default()
-                    .allocation_size(memory_requirements.size)
-                    .memory_type_index(memory_type as u32)
+                memory_type
             },
             HostAccessPolicy::UseStaging { host_memory_type: _, device_memory_type } => {
-                vk::MemoryAllocateInfo::default()
-                    .allocation_size(memory_requirements.size)
-                    .memory_type_index(device_memory_type as u32)
+                device_memory_type
             }
         };
+        let memory_allocate_info = vk::MemoryAllocateInfo::default()
+            .allocation_size(memory_requirements.size)
+            .memory_type_index(memory_type as u32);
 
         let memory = unsafe {self.device.allocate_memory(&memory_allocate_info, None)}.unwrap();
 
@@ -158,16 +162,6 @@ impl ResourceManager {
         let size = std::mem::size_of_val(data) as vk::DeviceSize;
         assert!(size <= resource.size);
 
-
-        unsafe {
-            self.device.wait_for_fences(&[self.transfer_completed_fence], true, std::u64::MAX).unwrap();
-            self.device.reset_fences(&[self.transfer_completed_fence]).unwrap();
-            
-
-            self.device.begin_command_buffer(self.command_buffer, 
-                &vk::CommandBufferBeginInfo::default()
-                .flags(CommandBufferUsageFlags::ONE_TIME_SUBMIT)).unwrap();
-        }
         match self.host_access_policy {
             HostAccessPolicy::SingleBuffer(_) => {
                 //write to device_local
@@ -179,6 +173,16 @@ impl ResourceManager {
                 }
             },
             HostAccessPolicy::UseStaging { host_memory_type, device_memory_type: _ } => {
+                unsafe {
+                    self.device.wait_for_fences(&[self.transfer_completed_fence], true, u64::MAX).unwrap();
+                    self.device.reset_fences(&[self.transfer_completed_fence]).unwrap();
+
+
+                    self.device.begin_command_buffer(self.command_buffer,
+                                                     &vk::CommandBufferBeginInfo::default()
+                                                         .flags(CommandBufferUsageFlags::ONE_TIME_SUBMIT)).unwrap();
+                }
+
                 // write to stahing
                 // transfer staging -> device_local
                 //  transfer | vertex_input barrier
@@ -245,15 +249,15 @@ impl ResourceManager {
                     );
                 }
                 self.staging_buffer = Some(staging_buffer);
+
+                unsafe {
+                    self.device.end_command_buffer(self.command_buffer).unwrap();
+                    let command_buffers = [self.command_buffer];
+                    let submit_info = vk::SubmitInfo::default()
+                        .command_buffers(&command_buffers);
+                    self.device.queue_submit(self.queue, &[submit_info], self.transfer_completed_fence).unwrap();
+                }
             }
-        }
-        
-        unsafe {
-            self.device.end_command_buffer(self.command_buffer).unwrap();
-            let command_buffers = [self.command_buffer];
-            let submit_info = vk::SubmitInfo::default()
-                .command_buffers(&command_buffers);
-            self.device.queue_submit(self.queue, &[submit_info], self.transfer_completed_fence).unwrap();
         }
     }
     pub fn cmd_barrier_after_vertex_buffer_use(&mut self, device: &ash::Device, command_buffer: vk::CommandBuffer, vertex_buffer: &BufferResource) {
@@ -302,22 +306,9 @@ impl ResourceManager {
     }
 
 
-    pub fn create_image(&mut self, width: u32, height: u32, format: vk::Format, tiling: vk::ImageTiling, usage: vk::ImageUsageFlags) -> ImageResource {
-        let image_create_info = vk::ImageCreateInfo::default()
-            .image_type(vk::ImageType::TYPE_2D)
-            .format(format)
-            .extent(vk::Extent3D {
-                width,
-                height,
-                depth: 1,
-            })
-            .mip_levels(1)
-            .array_layers(1)
-            .samples(vk::SampleCountFlags::TYPE_1)
-            .tiling(tiling)
-            .usage(usage | vk::ImageUsageFlags::TRANSFER_DST)
-            .sharing_mode(vk::SharingMode::EXCLUSIVE)
-            .initial_layout(vk::ImageLayout::UNDEFINED);
+    pub fn create_image(&mut self, extent: Extent2D, format: vk::Format, tiling: vk::ImageTiling, usage: vk::ImageUsageFlags) -> ImageResource {
+        let extent = Extent3D::from(extent);
+        let image_create_info = image_2d_info(format, usage, extent, SampleCountFlags::TYPE_1, tiling);
         
         let image = unsafe {self.device.create_image(&image_create_info, None)}.unwrap();
 
@@ -339,9 +330,19 @@ impl ResourceManager {
             image,
             memory,
             size: memory_requirements.size,
-            width,
-            height
+            extent,
+            info: image_create_info
         }
+    }
+
+    pub fn destroy_image(&mut self, image: ImageResource) {
+        if let Some(index) = self.image_resources.iter().position(|resource| resource.memory == image.memory) {
+            self.image_resources.swap_remove(index);
+        }
+
+        unsafe { self.device.free_memory(image.memory, None); }
+        unsafe {self.device.destroy_image(image.image, None)};
+
     }
 
     // TODO: save buffer or free it
@@ -381,11 +382,7 @@ impl ResourceManager {
                 .base_array_layer(0)
                 .layer_count(1)
                 )
-            .image_extent(vk::Extent3D {
-                width: image_resource.width,
-                height: image_resource.height,
-                depth: 1,
-            });
+            .image_extent(image_resource.extent);
         
         unsafe {
             self.device.begin_command_buffer(self.command_buffer, &vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)).unwrap();
@@ -438,21 +435,6 @@ impl ResourceManager {
         }
     }
 
-    pub fn create_image_view(&self, image: vk::Image, format: vk::Format, aspect_flags: vk::ImageAspectFlags) -> vk::ImageView {
-        let image_view_create_info = vk::ImageViewCreateInfo::default()
-            .image(image)
-            .view_type(vk::ImageViewType::TYPE_2D)
-            .format(format)
-            .subresource_range(vk::ImageSubresourceRange::default()
-                .aspect_mask(aspect_flags)
-                .base_mip_level(0)
-                .level_count(1)
-                .base_array_layer(0)
-                .layer_count(1));
-        
-        unsafe {self.device.create_image_view(&image_view_create_info, None)}.unwrap()
-    }
-
     pub fn create_sampler(&self) -> vk::Sampler {
         let sampler_create_info = vk::SamplerCreateInfo::default()
             .mag_filter(vk::Filter::LINEAR)
@@ -472,6 +454,20 @@ impl ResourceManager {
             .mip_lod_bias(0.0);
         
         unsafe {self.device.create_sampler(&sampler_create_info, None)}.unwrap()
+    }
+
+    pub unsafe fn destroy(&mut self) {
+        for image_res in self.image_resources.drain(..) {
+            self.device.free_memory(image_res.memory, None);
+            self.device.destroy_image(image_res.image, None);
+        }
+
+        for buffer_res in self.buffer_resources.drain(..) {
+            self.device.free_memory(buffer_res.memory, None);
+            self.device.destroy_buffer(buffer_res.buffer, None);
+        }
+
+        self.device.destroy_fence(self.transfer_completed_fence, None);
     }
 }
 
