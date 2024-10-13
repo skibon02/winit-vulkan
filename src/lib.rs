@@ -2,7 +2,7 @@ pub mod vulkan_backend;
 pub mod app;
 
 use std::time::Instant;
-use log::{error, info};
+use log::{error, info, warn};
 use sparkles_macro::{instant_event, range_event_start};
 use winit::{event::WindowEvent, event_loop::EventLoop, keyboard};
 use winit::application::ApplicationHandler;
@@ -138,6 +138,8 @@ pub struct App {
 
     frame_cnt: i32,
     last_sec: Instant,
+
+    rendering_active: bool,
 }
 
 pub enum AppResult {
@@ -158,7 +160,9 @@ impl App {
             window,
 
             last_sec: Instant::now(),
-            frame_cnt: 0
+            frame_cnt: 0,
+
+            rendering_active: true
         }
     }
 
@@ -217,7 +221,7 @@ impl App {
 
             WindowEvent::RedrawRequested => {
                 let g = range_event_start!("[APP] Redraw requested");
-                if !self.app_finished {
+                if !self.app_finished && self.rendering_active {
                     self.vulkan_backend.render()?;
 
                     self.frame_cnt += 1;
@@ -234,7 +238,18 @@ impl App {
                 }
             }
             WindowEvent::Resized(size) => {
-                self.vulkan_backend.recreate_resize(*size);
+                info!("Resized to {}x{}", size.width, size.height);
+                if size.width == 0 || size.height == 0 {
+                    warn!("One of dimensions is 0! Suspending rendering...");
+                    self.rendering_active = false;
+                }
+                else {
+                    if !self.rendering_active {
+                        info!("Continue rendering...");
+                    }
+                    self.vulkan_backend.recreate_resize(*size);
+                    self.rendering_active = true;
+                }
             }
             // _ => info!("new window event: {:?}", evt),
             _ => {}

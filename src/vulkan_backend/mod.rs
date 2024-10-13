@@ -7,7 +7,7 @@ pub mod descriptor_sets;
 
 use swapchain_wrapper::SwapchainWrapper;
 
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use winit::window::Window;
 
 use ash::vk::{self, make_api_version, ApplicationInfo, BufferUsageFlags, CommandBuffer,
@@ -330,7 +330,7 @@ impl VulkanBackend {
             self.device.device_wait_idle().unwrap();
         }
         let end = std::time::Instant::now();
-        info!("Waited for idle for {:?}", end - start);
+        debug!("Waited for idle for {:?}", end - start);
     }
 }
 
