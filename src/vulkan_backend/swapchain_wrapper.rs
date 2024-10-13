@@ -3,8 +3,9 @@ use ash::khr::swapchain;
 use ash::vk::{Extent2D, Format, Image, ImageAspectFlags, ImageTiling, ImageUsageFlags, ImageView, PhysicalDevice, SampleCountFlags, SurfaceKHR, SwapchainKHR};
 use log::info;
 use sparkles_macro::range_event_start;
+use crate::vulkan_backend::wrappers::device::VkDeviceRef;
 use crate::vulkan_backend::wrappers::image::{image_2d_info, imageview_info_for_image, swapchain_info};
-use crate::vulkan_backend::wrappers::surface::VkSurface;
+use crate::vulkan_backend::wrappers::surface::{VkSurface, VkSurfaceRef};
 
 pub struct SwapchainWrapper {
     swapchain: SwapchainKHR,
@@ -14,16 +15,17 @@ pub struct SwapchainWrapper {
     swapchain_format: Format,
     pub swapchain_extent: Extent2D,
 
-    device: Device,
+    device: VkDeviceRef,
+    surface: VkSurfaceRef
 }
 
 impl SwapchainWrapper {
-    pub fn new(instance: &Instance, device: &Device, physical_device: PhysicalDevice,
-            extent: Extent2D, surface: &VkSurface, old_swapchain: Option<SwapchainKHR>) -> anyhow::Result<SwapchainWrapper> {
+    pub fn new(device: VkDeviceRef, physical_device: PhysicalDevice,
+               extent: Extent2D, surface_ref: VkSurfaceRef, old_swapchain: Option<SwapchainKHR>) -> anyhow::Result<SwapchainWrapper> {
         let g = range_event_start!("[Vulkan] Init swapchain");
 
-        let surface_loader = surface.loader();
-        let surface = surface.surface();
+        let surface_loader = surface_ref.loader();
+        let surface = surface_ref.surface();
 
         // TODO: replace with wrapper methods
         let surface_capabilities = unsafe { surface_loader.get_physical_device_surface_capabilities(physical_device, *surface)? };
@@ -61,7 +63,7 @@ impl SwapchainWrapper {
         };
 
 
-        let swapchain_loader = swapchain::Device::new(instance, device);
+        let swapchain_loader = swapchain::Device::new(device.instance(), &device);
         let swapchain_image_info = image_2d_info(surface_format.format, ImageUsageFlags::COLOR_ATTACHMENT,
                                              swapchain_extent, SampleCountFlags::TYPE_1, ImageTiling::OPTIMAL);
         let swapchain_create_info = swapchain_info(swapchain_image_info, surface_format.color_space)
@@ -96,7 +98,8 @@ impl SwapchainWrapper {
             swapchain_format: surface_format.format,
             swapchain_extent,
 
-            device: device.clone()
+            device,
+            surface: surface_ref
         })
     }
 
@@ -118,12 +121,11 @@ impl SwapchainWrapper {
 
     /// # Safety
     /// Image views should not be used. Swapchain should not be used.
-    pub unsafe fn recreate(&mut self, instance: &Instance, physical_device: PhysicalDevice,
-                           extent: Extent2D, surface: &VkSurface) -> anyhow::Result<()> {
-        let device = &self.device;
+    pub unsafe fn recreate(&mut self, physical_device: PhysicalDevice,
+                           extent: Extent2D, surface: VkSurfaceRef) -> anyhow::Result<()> {
 
         let swapchain = self.swapchain;
-        *self = Self::new(instance, device, physical_device, extent, surface, Some(swapchain))?;
+        *self = Self::new(self.device.clone(), physical_device, extent, surface, Some(swapchain))?;
         Ok(())
     }
 }

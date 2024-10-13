@@ -6,7 +6,7 @@ use ash::{vk, Entry};
 use log::{info, warn};
 use sparkles_macro::range_event_start;
 use crate::vulkan_backend::wrappers::device::{VkDevice, VkDeviceRef};
-use crate::vulkan_backend::wrappers::instance::VkInstance;
+use crate::vulkan_backend::wrappers::instance::{VkInstance, VkInstanceRef};
 
 /// Helper for creating Instance and Device
 pub struct CapabilitiesChecker {
@@ -24,7 +24,7 @@ impl CapabilitiesChecker {
         }
     }
 
-    pub fn create_instance(&mut self, create_info: &mut vk::InstanceCreateInfo) -> anyhow::Result<VkInstance> {
+    pub fn create_instance(&mut self, create_info: &mut vk::InstanceCreateInfo) -> anyhow::Result<VkInstanceRef> {
         let g = range_event_start!("[VulkanHelpers] Create instance");
         let requested_layers = unsafe {slice::from_raw_parts(create_info.pp_enabled_layer_names, create_info.enabled_layer_count as usize)};
         let requested_layers: Vec<_> = requested_layers.iter()
@@ -90,10 +90,10 @@ impl CapabilitiesChecker {
             info!("Activated instance extension: {}", e);
         }
 
-        Ok(VkInstance::new(instance))
+        Ok(Arc::new(VkInstance::new(instance)))
     }
 
-    pub fn create_device(&mut self, instance: &ash::Instance, physical_device: vk::PhysicalDevice, create_info: &mut vk::DeviceCreateInfo) -> anyhow::Result<VkDeviceRef> {
+    pub fn create_device(&mut self, instance: VkInstanceRef, physical_device: vk::PhysicalDevice, create_info: &mut vk::DeviceCreateInfo) -> anyhow::Result<VkDeviceRef> {
         let g = range_event_start!("[VulkanHelpers] Create device");
         let requested_extensions = unsafe {slice::from_raw_parts(create_info.pp_enabled_extension_names, create_info.enabled_extension_count as usize)};
         let requested_extensions: Vec<_> = requested_extensions.iter()
@@ -127,7 +127,7 @@ impl CapabilitiesChecker {
             info!("Activated device extension: {}", e);
         }
 
-        Ok(VkDevice::new(device).into())
+        Ok(VkDevice::new(device, instance).into())
     }
 }
 

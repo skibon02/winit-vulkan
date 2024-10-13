@@ -1,6 +1,7 @@
 use std::ops::Deref;
 use std::sync::Arc;
-use ash::Device;
+use ash::{Device, Instance};
+use crate::vulkan_backend::wrappers::instance::VkInstanceRef;
 
 pub type VkDeviceRef = Arc<VkDevice>;
 
@@ -9,12 +10,17 @@ pub type VkDeviceRef = Arc<VkDevice>;
 #[derive(Clone)]
 pub struct VkDevice {
     device: Device,
+    instance: VkInstanceRef
 }
 impl VkDevice {
-    pub fn new(device: Device) -> VkDevice {
+    pub fn new(device: Device, instance: VkInstanceRef) -> VkDevice {
         VkDevice {
             device,
+            instance
         }
+    }
+    pub(crate) fn instance(&self) -> &Instance {
+        &self.instance
     }
 }
 

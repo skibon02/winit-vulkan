@@ -1,24 +1,29 @@
+use std::sync::Arc;
 use anyhow::Context;
 use ash::Entry;
 use ash::vk::{PhysicalDevice, SurfaceKHR};
 use ash_window::create_surface;
 use winit::raw_window_handle::{RawDisplayHandle, RawWindowHandle};
+use crate::vulkan_backend::wrappers::instance::VkInstanceRef;
 
+pub type VkSurfaceRef = Arc<VkSurface>;
 pub struct VkSurface {
     surface_loader: ash::khr::surface::Instance,
     surface: SurfaceKHR,
+    _instance: VkInstanceRef,
 }
 
 impl VkSurface {
-    pub fn new(instance: &ash::Instance, display_h: RawDisplayHandle, window_h: RawWindowHandle) -> anyhow::Result<VkSurface> {
+    pub fn new(instance: VkInstanceRef, display_h: RawDisplayHandle, window_h: RawWindowHandle) -> anyhow::Result<VkSurfaceRef> {
         let entry = Entry::linked();
-        let surface_loader = ash::khr::surface::Instance::new(&entry, instance);
-        let surface = unsafe { create_surface(&entry, instance, display_h, window_h, None).context("Surface creation")? };
+        let surface_loader = ash::khr::surface::Instance::new(&entry, &instance);
+        let surface = unsafe { create_surface(&entry, &instance, display_h, window_h, None).context("Surface creation")? };
 
-        Ok(VkSurface {
+        Ok(Arc::new(VkSurface {
             surface_loader,
             surface,
-        })
+            _instance: instance
+        }))
     }
     pub fn query_presentation_support(&self, physical_device: PhysicalDevice) -> bool {
         // TODO: check all queue families, not just first one

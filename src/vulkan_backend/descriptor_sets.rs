@@ -1,5 +1,4 @@
-use std::sync::Arc;
-use ash::{vk, Device};
+use ash::{vk};
 use ash::vk::{BufferUsageFlags, DescriptorBufferInfo, DescriptorPool, DescriptorPoolSize, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateFlags, DescriptorType, DeviceMemory, ShaderStageFlags, WriteDescriptorSet, WHOLE_SIZE};
 use crate::vulkan_backend::resource_manager::{BufferResource, ResourceManager};
 use crate::vulkan_backend::wrappers::device::VkDeviceRef;

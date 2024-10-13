@@ -10,7 +10,6 @@ use swapchain_wrapper::SwapchainWrapper;
 use log::{error, info, warn};
 use winit::window::Window;
 
-use ash::{Entry, Instance};
 use ash::vk::{self, make_api_version, ApplicationInfo, BufferUsageFlags, CommandBuffer,
               Extent2D, FenceCreateFlags, PhysicalDevice, Queue, Semaphore, SurfaceKHR};
 
@@ -27,14 +26,12 @@ use crate::vulkan_backend::resource_manager::{BufferResource, ResourceManager};
 use crate::vulkan_backend::wrappers::capabilities_checker::CapabilitiesChecker;
 use crate::vulkan_backend::wrappers::debug_utils::VkDebugUtils;
 use crate::vulkan_backend::wrappers::device::VkDeviceRef;
-use crate::vulkan_backend::wrappers::instance::VkInstance;
-use crate::vulkan_backend::wrappers::surface::VkSurface;
+use crate::vulkan_backend::wrappers::surface::{VkSurface, VkSurfaceRef};
 
 pub struct VulkanBackend {
     app: App,
-    instance: VkInstance,
     debug_utils: VkDebugUtils,
-    surface: VkSurface,
+    surface: VkSurfaceRef,
     physical_device: PhysicalDevice,
     device: VkDeviceRef,
     queue: Queue,
@@ -114,9 +111,9 @@ impl VulkanBackend {
         // supported ones, which can be requested later
         let instance = caps_checker.create_instance(&mut create_info)?;
 
-        let surface_wrapper = VkSurface::new(&instance, display_handle, window_handle)?;
+        let surface = VkSurface::new(instance.clone(), display_handle, window_handle)?;
 
-        let debug_utils = VkDebugUtils::new(&instance)?;
+        let debug_utils = VkDebugUtils::new(instance.clone())?;
         // instance is created. debug utils ready
 
 
@@ -150,7 +147,7 @@ impl VulkanBackend {
         let queue_family_properties = unsafe { instance.get_physical_device_queue_family_properties(physical_device) };
         let queue_family_index = queue_family_properties.iter().enumerate().find(|(_, p)| {
             let support_graphics = p.queue_flags.contains(vk::QueueFlags::GRAPHICS) ;
-            let support_presentation = surface_wrapper.query_presentation_support(physical_device);
+            let support_presentation = surface.query_presentation_support(physical_device);
 
             support_graphics && support_presentation
         }).map(|(i, _)| i as u32).unwrap_or_else(|| {
@@ -166,7 +163,7 @@ impl VulkanBackend {
             .queue_create_infos(&queue_create_infos)
             .enabled_extension_names(&device_extensions);
 
-        let device = caps_checker.create_device(&instance, physical_device, &mut device_create_info)?;
+        let device = caps_checker.create_device(instance.clone(), physical_device, &mut device_create_info)?;
 
         let queue = unsafe { device.get_device_queue(queue_family_index, 0) };
         let command_pool = VkCommandPool::new(device.clone(), queue_family_index);
@@ -179,10 +176,10 @@ impl VulkanBackend {
         let fences = from_fn(|_| unsafe { device.create_fence(&vk::FenceCreateInfo::default().flags(FenceCreateFlags::SIGNALED), None).unwrap() });
 
 
-        let mut resource_manager = ResourceManager::new(&instance, physical_device, device.clone(), queue, &command_pool);
+        let mut resource_manager = ResourceManager::new(physical_device, device.clone(), queue, &command_pool);
 
         let extent = Extent2D { width: window_size.width, height: window_size.height };
-        let swapchain_wrapper = SwapchainWrapper::new(&instance, &device, physical_device, extent, &surface_wrapper, None)?;
+        let swapchain_wrapper = SwapchainWrapper::new(device.clone(), physical_device, extent, surface.clone(), None)?;
         let render_pass = RenderPassWrapper::new(device.clone(), swapchain_wrapper.get_surface_format(), &mut resource_manager);
         let render_pass_resources = render_pass.create_render_pass_resources(swapchain_wrapper.get_image_views(),
                                                                          swapchain_wrapper.get_extent(), &mut resource_manager);
@@ -193,9 +190,8 @@ impl VulkanBackend {
         resource_manager.fill_buffer(vertex_buffer, &vertex_data);
         Ok(VulkanBackend {
             app,
-            instance, 
 
-            surface: surface_wrapper,
+            surface,
             debug_utils,
 
             physical_device,
@@ -231,7 +227,7 @@ impl VulkanBackend {
 
         // 2. Recreate swapchain
         let old_format = self.swapchain_wrapper.get_surface_format();
-        unsafe { self.swapchain_wrapper.recreate(&self.instance, self.physical_device, new_extent, &self.surface).unwrap() };
+        unsafe { self.swapchain_wrapper.recreate(self.physical_device, new_extent, self.surface.clone()).unwrap() };
         let new_format = self.swapchain_wrapper.get_surface_format();
         if new_format != old_format {
             unimplemented!("Swapchain returned the wrong format");
@@ -354,9 +350,4 @@ impl Drop for VulkanBackend {
             unsafe { self.device.destroy_fence(fence, None); }
         }
     }
-}
-
-#[derive(Debug, Default)]
-pub struct AppData {
-
 }

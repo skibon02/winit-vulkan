@@ -47,12 +47,12 @@ pub struct ResourceManager {
 }
 
 impl ResourceManager {
-    pub fn new(instance: &ash::Instance, physical_device: vk::PhysicalDevice, device: VkDeviceRef, queue: vk::Queue, command_pool: &VkCommandPool) -> Self {
+    pub fn new(physical_device: vk::PhysicalDevice, device: VkDeviceRef, queue: vk::Queue, command_pool: &VkCommandPool) -> Self {
         // allocate command buffer
         let command_buffer = command_pool.alloc_command_buffers(1)[0];
 
         //query memory properties info
-        let memory_properties = unsafe {instance.get_physical_device_memory_properties(physical_device)};
+        let memory_properties = unsafe {device.instance().get_physical_device_memory_properties(physical_device)};
 
         let single_memory_type = memory_properties.memory_types.iter().enumerate().find(|(i, memory_type)| {
             if *i >= memory_properties.memory_type_count as usize {

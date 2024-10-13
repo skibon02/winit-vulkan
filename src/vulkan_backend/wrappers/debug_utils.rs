@@ -1,10 +1,12 @@
-use ash::{vk, Entry, Instance};
+use ash::{vk, Entry};
 use ash::vk::{DebugUtilsMessageSeverityFlagsEXT, DebugUtilsMessageTypeFlagsEXT, DebugUtilsMessengerCreateInfoEXT};
 use log::{debug, error, info, warn};
+use crate::vulkan_backend::wrappers::instance::VkInstanceRef;
 
 pub struct VkDebugUtils {
     debug_utils_h: ash::ext::debug_utils::Instance,
-    debug_utils_messenger_h: vk::DebugUtilsMessengerEXT
+    debug_utils_messenger_h: vk::DebugUtilsMessengerEXT,
+    instance: VkInstanceRef
 }
 
 unsafe extern "system" fn vulkan_debug_callback(
@@ -35,10 +37,10 @@ unsafe extern "system" fn vulkan_debug_callback(
 
 impl VkDebugUtils {
     /// Can be used AFTER instance is created
-    pub fn new(instance: &Instance) -> anyhow::Result<VkDebugUtils> {
+    pub fn new(instance: VkInstanceRef) -> anyhow::Result<VkDebugUtils> {
         let entry = Entry::linked();
 
-        let debug_utils_h = ash::ext::debug_utils::Instance::new(&entry, instance);
+        let debug_utils_h = ash::ext::debug_utils::Instance::new(&entry, &instance);
 
         let debug_utils_messenger_h = unsafe {
             debug_utils_h.create_debug_utils_messenger(
@@ -47,7 +49,8 @@ impl VkDebugUtils {
 
         Ok(VkDebugUtils {
             debug_utils_messenger_h,
-            debug_utils_h
+            debug_utils_h,
+            instance
         })
     }
 

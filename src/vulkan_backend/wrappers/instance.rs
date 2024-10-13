@@ -1,5 +1,8 @@
 use std::ops::Deref;
+use std::sync::Arc;
 use ash::Instance;
+
+pub type VkInstanceRef = Arc<VkInstance>;
 
 /// RAII vulakn instance
 pub struct VkInstance {
