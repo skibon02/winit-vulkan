@@ -1,7 +1,9 @@
 use ash::vk;
-use ash::vk::{ColorSpaceKHR, Extent2D, Extent3D, Format, Image, ImageAspectFlags, ImageCreateInfo, ImageSubresourceRange, ImageTiling, ImageType, ImageUsageFlags, ImageViewCreateInfo, SampleCountFlags, SurfaceFormatKHR, SurfaceKHR, SurfaceTransformFlagsKHR, SwapchainCreateInfoKHR};
-
-
+use ash::vk::{
+    ColorSpaceKHR, Extent2D, Extent3D, Format, Image, ImageAspectFlags, ImageCreateInfo,
+    ImageSubresourceRange, ImageTiling, ImageType, ImageUsageFlags, ImageViewCreateInfo,
+    SampleCountFlags, SwapchainCreateInfoKHR,
+};
 
 /// Generate create info for a simple 2d image
 /// - 1 layer
@@ -11,13 +13,18 @@ use ash::vk::{ColorSpaceKHR, Extent2D, Extent3D, Format, Image, ImageAspectFlags
 /// - tiling optimal
 /// - initial layout: Undefined
 /// - type 2d
-pub fn image_2d_info<'a>(format: Format, usage: ImageUsageFlags, extent: impl Into<Extent3D>, samples: SampleCountFlags, tiling: ImageTiling) -> ImageCreateInfo<'a> {
+pub fn image_2d_info<'a>(
+    format: Format,
+    usage: ImageUsageFlags,
+    extent: impl Into<Extent3D>,
+    samples: SampleCountFlags,
+    tiling: ImageTiling,
+) -> ImageCreateInfo<'a> {
     vk::ImageCreateInfo::default()
         .format(format)
         .usage(usage)
         .extent(extent.into())
         .samples(samples)
-
         .array_layers(1)
         .flags(vk::ImageCreateFlags::empty())
         .mip_levels(1)
@@ -33,7 +40,11 @@ pub fn image_2d_info<'a>(format: Format, usage: ImageUsageFlags, extent: impl In
 /// - empty flags
 /// - type same as input image
 /// - format same as input image
-pub fn imageview_info_for_image(image: Image, info: ImageCreateInfo, aspect: ImageAspectFlags) -> ImageViewCreateInfo {
+pub fn imageview_info_for_image(
+    image: Image,
+    info: ImageCreateInfo,
+    aspect: ImageAspectFlags,
+) -> ImageViewCreateInfo {
     let imageview_type = match info.image_type {
         ImageType::TYPE_2D => vk::ImageViewType::TYPE_2D,
         ImageType::TYPE_3D => vk::ImageViewType::TYPE_3D,
@@ -46,19 +57,27 @@ pub fn imageview_info_for_image(image: Image, info: ImageCreateInfo, aspect: Ima
         .components(vk::ComponentMapping::default())
         .image(image)
         .view_type(imageview_type)
-        .subresource_range(ImageSubresourceRange::default()
-            .aspect_mask(aspect)
-            .layer_count(1)
-            .level_count(1));
+        .subresource_range(
+            ImageSubresourceRange::default()
+                .aspect_mask(aspect)
+                .layer_count(1)
+                .level_count(1),
+        );
 
     imageview_info
 }
 
-pub fn swapchain_info(image_info: ImageCreateInfo, color_space: ColorSpaceKHR) -> SwapchainCreateInfoKHR {
+pub fn swapchain_info(
+    image_info: ImageCreateInfo,
+    color_space: ColorSpaceKHR,
+) -> SwapchainCreateInfoKHR {
     vk::SwapchainCreateInfoKHR::default()
         .image_color_space(color_space)
         .image_format(image_info.format)
-        .image_extent(Extent2D {width: image_info.extent.width, height: image_info.extent.height})
+        .image_extent(Extent2D {
+            width: image_info.extent.width,
+            height: image_info.extent.height,
+        })
         .image_array_layers(image_info.array_layers)
         .image_sharing_mode(image_info.sharing_mode)
         .image_usage(ImageUsageFlags::COLOR_ATTACHMENT)

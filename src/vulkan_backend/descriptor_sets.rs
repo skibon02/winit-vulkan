@@ -1,7 +1,11 @@
-use ash::{vk};
-use ash::vk::{BufferUsageFlags, DescriptorBufferInfo, DescriptorPool, DescriptorPoolSize, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateFlags, DescriptorType, DeviceMemory, ShaderStageFlags, WriteDescriptorSet, WHOLE_SIZE};
 use crate::vulkan_backend::resource_manager::{BufferResource, ResourceManager};
 use crate::vulkan_backend::wrappers::device::VkDeviceRef;
+use ash::vk;
+use ash::vk::{
+    BufferUsageFlags, DescriptorBufferInfo, DescriptorPool, DescriptorPoolSize, DescriptorSet,
+    DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorType,
+    ShaderStageFlags, WriteDescriptorSet, WHOLE_SIZE,
+};
 
 pub struct DescriptorSets {
     device: VkDeviceRef,
@@ -9,7 +13,7 @@ pub struct DescriptorSets {
     descriptor_set_layout: DescriptorSetLayout,
     descriptor_set: DescriptorSet,
     descriptor_pool: DescriptorPool,
-    buffer: BufferResource
+    buffer: BufferResource,
 }
 
 impl DescriptorSets {
@@ -20,18 +24,28 @@ impl DescriptorSets {
             .descriptor_count(1)
             .descriptor_type(DescriptorType::UNIFORM_BUFFER)
             .stage_flags(ShaderStageFlags::FRAGMENT)];
-        let descriptor_set_layout_info = vk::DescriptorSetLayoutCreateInfo::default()
-            .bindings(&bindings);
+        let descriptor_set_layout_info =
+            vk::DescriptorSetLayoutCreateInfo::default().bindings(&bindings);
 
-        let descriptor_set_layout = unsafe {device.create_descriptor_set_layout(&descriptor_set_layout_info, None).unwrap()};
+        let descriptor_set_layout = unsafe {
+            device
+                .create_descriptor_set_layout(&descriptor_set_layout_info, None)
+                .unwrap()
+        };
 
         // 2. Create Descriptor set
-        let pool_sizes = [DescriptorPoolSize::default().descriptor_count(1).ty(DescriptorType::UNIFORM_BUFFER)];
+        let pool_sizes = [DescriptorPoolSize::default()
+            .descriptor_count(1)
+            .ty(DescriptorType::UNIFORM_BUFFER)];
         let desc_pool_info = vk::DescriptorPoolCreateInfo::default()
             .max_sets(1)
             .pool_sizes(&pool_sizes);
 
-        let descriptor_pool = unsafe {device.create_descriptor_pool(&desc_pool_info, None).unwrap()};
+        let descriptor_pool = unsafe {
+            device
+                .create_descriptor_pool(&desc_pool_info, None)
+                .unwrap()
+        };
 
         let set_layouts = [descriptor_set_layout];
         let alloc_info = DescriptorSetAllocateInfo::default()
@@ -39,7 +53,7 @@ impl DescriptorSets {
             .set_layouts(&set_layouts);
         let descriptor_set = unsafe { device.allocate_descriptor_sets(&alloc_info).unwrap()[0] };
 
-        let buffer = resource_manager.create_buffer(3*4, BufferUsageFlags::UNIFORM_BUFFER);
+        let buffer = resource_manager.create_buffer(3 * 4, BufferUsageFlags::UNIFORM_BUFFER);
         resource_manager.fill_buffer(buffer, &[0.0f32, 0.0, 0.0]);
 
         let buffer_info = [DescriptorBufferInfo::default()
@@ -60,7 +74,7 @@ impl DescriptorSets {
             descriptor_set_layout,
             descriptor_set,
             descriptor_pool,
-            buffer
+            buffer,
         }
     }
 
@@ -79,8 +93,10 @@ impl DescriptorSets {
 impl Drop for DescriptorSets {
     fn drop(&mut self) {
         unsafe {
-            self.device.destroy_descriptor_pool(self.descriptor_pool, None);
-            self.device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
+            self.device
+                .destroy_descriptor_pool(self.descriptor_pool, None);
+            self.device
+                .destroy_descriptor_set_layout(self.descriptor_set_layout, None);
         }
     }
 }

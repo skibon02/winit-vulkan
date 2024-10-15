@@ -1,26 +1,26 @@
-pub mod vulkan_backend;
 pub mod app;
+pub mod vulkan_backend;
 
-use std::time::Instant;
 use log::{error, info, warn};
 use sparkles_macro::{instant_event, range_event_start};
-use winit::{event::WindowEvent, event_loop::EventLoop, keyboard};
+use std::time::Instant;
 use winit::application::ApplicationHandler;
-use winit::event_loop::{ActiveEventLoop, EventLoopBuilder};
+use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::NamedKey;
 use winit::window::{Fullscreen, Window, WindowAttributes, WindowId};
+use winit::{event::WindowEvent, event_loop::EventLoop, keyboard};
 
+use crate::vulkan_backend::VulkanBackend;
 #[cfg(target_os = "android")]
 use winit::platform::android::activity::*;
-use crate::vulkan_backend::VulkanBackend;
 
 #[cfg(target_os = "android")]
 #[no_mangle]
 fn android_main(app: AndroidApp) {
-    use jni::JavaVM;
     use jni::objects::{JObject, JObjectArray, JValue};
+    use jni::JavaVM;
     use winit::platform::android::EventLoopBuilderExtAndroid;
-    
+
     let g = range_event_start!("android_main init");
 
     android_logger::init_once(
@@ -32,42 +32,121 @@ fn android_main(app: AndroidApp) {
 
     let activity = unsafe { JObject::from_raw(app.activity_as_ptr() as jni::sys::jobject) };
 
-    let windowmanager = env.call_method(&activity, "getWindowManager", "()Landroid/view/WindowManager;", &[]).unwrap().l().unwrap();
-    let display = env.call_method(&windowmanager, "getDefaultDisplay", "()Landroid/view/Display;", &[]).unwrap().l().unwrap();
-    let supported_modes = env.call_method(&display, "getSupportedModes", "()[Landroid/view/Display$Mode;", &[]).unwrap().l().unwrap();
+    let windowmanager = env
+        .call_method(
+            &activity,
+            "getWindowManager",
+            "()Landroid/view/WindowManager;",
+            &[],
+        )
+        .unwrap()
+        .l()
+        .unwrap();
+    let display = env
+        .call_method(
+            &windowmanager,
+            "getDefaultDisplay",
+            "()Landroid/view/Display;",
+            &[],
+        )
+        .unwrap()
+        .l()
+        .unwrap();
+    let supported_modes = env
+        .call_method(
+            &display,
+            "getSupportedModes",
+            "()[Landroid/view/Display$Mode;",
+            &[],
+        )
+        .unwrap()
+        .l()
+        .unwrap();
     let supported_modes = JObjectArray::from(supported_modes);
     let length = env.get_array_length(&supported_modes).unwrap();
     info!("Found {} supported modes", length);
     let mut modes = Vec::new();
     for i in 0..length {
         let mode = env.get_object_array_element(&supported_modes, i).unwrap();
-        let height = env.call_method(&mode, "getPhysicalHeight", "()I", &[]).unwrap().i().unwrap();
-        let width = env.call_method(&mode, "getPhysicalWidth", "()I", &[]).unwrap().i().unwrap();
-        let refresh_rate = env.call_method(&mode, "getRefreshRate", "()F", &[]).unwrap().f().unwrap();
-        let index = env.call_method(&mode, "getModeId", "()I", &[]).unwrap().i().unwrap();
+        let height = env
+            .call_method(&mode, "getPhysicalHeight", "()I", &[])
+            .unwrap()
+            .i()
+            .unwrap();
+        let width = env
+            .call_method(&mode, "getPhysicalWidth", "()I", &[])
+            .unwrap()
+            .i()
+            .unwrap();
+        let refresh_rate = env
+            .call_method(&mode, "getRefreshRate", "()F", &[])
+            .unwrap()
+            .f()
+            .unwrap();
+        let index = env
+            .call_method(&mode, "getModeId", "()I", &[])
+            .unwrap()
+            .i()
+            .unwrap();
         modes.push((index, refresh_rate));
         info!("Mode {}: {}x{}@{}", index, width, height, refresh_rate);
     }
 
-    let mut max_framerate_mode = modes.iter()
-        .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap()).unwrap();
+    let mut max_framerate_mode = modes
+        .iter()
+        .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+        .unwrap();
     info!("Max framerate: {}", max_framerate_mode.1);
 
     let preferred_id = 1;
 
-    let window = env.call_method(&activity, "getWindow", "()Landroid/view/Window;", &[]).unwrap().l().unwrap();
+    let window = env
+        .call_method(&activity, "getWindow", "()Landroid/view/Window;", &[])
+        .unwrap()
+        .l()
+        .unwrap();
 
-    let layout_params_class = env.find_class("android/view/WindowManager$LayoutParams").unwrap();
-    let layout_params = env.call_method(window, "getAttributes", "()Landroid/view/WindowManager$LayoutParams;", &[]).unwrap().l().unwrap();
+    let layout_params_class = env
+        .find_class("android/view/WindowManager$LayoutParams")
+        .unwrap();
+    let layout_params = env
+        .call_method(
+            window,
+            "getAttributes",
+            "()Landroid/view/WindowManager$LayoutParams;",
+            &[],
+        )
+        .unwrap()
+        .l()
+        .unwrap();
 
-    let preferred_display_mode_id_field_id = env.get_field_id(layout_params_class, "preferredDisplayModeId", "I").unwrap();
-    env.set_field_unchecked(&layout_params, preferred_display_mode_id_field_id, JValue::from(preferred_id)).unwrap();
+    let preferred_display_mode_id_field_id = env
+        .get_field_id(layout_params_class, "preferredDisplayModeId", "I")
+        .unwrap();
+    env.set_field_unchecked(
+        &layout_params,
+        preferred_display_mode_id_field_id,
+        JValue::from(preferred_id),
+    )
+    .unwrap();
 
-    let window = env.call_method(&activity, "getWindow", "()Landroid/view/Window;", &[]).unwrap().l().unwrap();
-    env.call_method(window, "setAttributes", "(Landroid/view/WindowManager$LayoutParams;)V", &[(&layout_params).into()]).unwrap();
+    let window = env
+        .call_method(&activity, "getWindow", "()Landroid/view/Window;", &[])
+        .unwrap()
+        .l()
+        .unwrap();
+    env.call_method(
+        window,
+        "setAttributes",
+        "(Landroid/view/WindowManager$LayoutParams;)V",
+        &[(&layout_params).into()],
+    )
+    .unwrap();
 
-
-    let event_loop = EventLoopBuilder::default().with_android_app(app).build().unwrap();
+    let event_loop = EventLoopBuilder::default()
+        .with_android_app(app)
+        .build()
+        .unwrap();
     drop(g);
     run(event_loop);
 }
@@ -78,14 +157,12 @@ pub fn run(event_loop: EventLoop<()>) {
 }
 
 struct WinitApp {
-    app: Option<App>
+    app: Option<App>,
 }
 
 impl WinitApp {
     fn new() -> Self {
-        Self {
-            app: None
-        }
+        Self { app: None }
     }
 }
 
@@ -93,14 +170,20 @@ impl ApplicationHandler for WinitApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let g = range_event_start!("[WINIT] resumed");
         info!("\t\t*** APP RESUMED ***");
-        let window = event_loop.create_window(WindowAttributes::default().with_title("Crazy triangle")).unwrap();
+        let window = event_loop
+            .create_window(WindowAttributes::default().with_title("Crazy triangle"))
+            .unwrap();
 
         let app = App::new_winit(window);
         self.app = Some(app);
     }
 
-
-    fn window_event(&mut self, event_loop: &ActiveEventLoop, _window_id: WindowId, event: WindowEvent) {
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        _window_id: WindowId,
+        event: WindowEvent,
+    ) {
         let g = range_event_start!("[WINIT] window event");
         if self.app.as_mut().unwrap().is_finished() {
             info!("Exit requested!");
@@ -124,10 +207,8 @@ impl ApplicationHandler for WinitApp {
     fn memory_warning(&mut self, event_loop: &ActiveEventLoop) {
         let g = range_event_start!("[WINIT] Memory warning");
         info!("\t\t*** APP MEMORY WARNING ***");
-
     }
 }
-
 
 pub struct App {
     app_finished: bool,
@@ -144,12 +225,11 @@ pub struct App {
 
 pub enum AppResult {
     Idle,
-    Exit
+    Exit,
 }
 
 impl App {
     pub fn new_winit(window: Window) -> App {
-
         let vulkan_backend = VulkanBackend::new_for_window(&window, app::App::new()).unwrap();
 
         Self {
@@ -162,7 +242,7 @@ impl App {
             last_sec: Instant::now(),
             frame_cnt: 0,
 
-            rendering_active: true
+            rendering_active: true,
         }
     }
 
@@ -170,44 +250,53 @@ impl App {
         self.app_finished
     }
 
-    pub fn handle_event(&mut self, _event_loop: &ActiveEventLoop, evt: WindowEvent) -> anyhow::Result<()> {
+    pub fn handle_event(
+        &mut self,
+        _event_loop: &ActiveEventLoop,
+        evt: WindowEvent,
+    ) -> anyhow::Result<()> {
         match &evt {
-            WindowEvent::CloseRequested |
-            WindowEvent::KeyboardInput {
-                event: winit::event::KeyEvent {
-                    logical_key: keyboard::Key::Named(NamedKey::GoBack | NamedKey::BrowserBack),
-                    state: winit::event::ElementState::Pressed,
-                    ..
-                },
+            WindowEvent::CloseRequested
+            | WindowEvent::KeyboardInput {
+                event:
+                    winit::event::KeyEvent {
+                        logical_key: keyboard::Key::Named(NamedKey::GoBack | NamedKey::BrowserBack),
+                        state: winit::event::ElementState::Pressed,
+                        ..
+                    },
                 ..
-            }=> {
+            } => {
                 let g = range_event_start!("[APP] Close requested");
                 info!("Close requested...");
                 self.vulkan_backend.wait_idle();
                 self.app_finished = true;
-            },
+            }
 
             WindowEvent::KeyboardInput {
-                event: winit::event::KeyEvent {
-                    logical_key: keyboard::Key::Named(NamedKey::F11),
-                    state: winit::event::ElementState::Pressed,
-                    ..
-                },
+                event:
+                    winit::event::KeyEvent {
+                        logical_key: keyboard::Key::Named(NamedKey::F11),
+                        state: winit::event::ElementState::Pressed,
+                        ..
+                    },
                 ..
-            }=> {
+            } => {
                 if self.window.fullscreen().is_none() {
                     let g = range_event_start!("[APP] Enable fullscreen");
                     let monitor = self.window.current_monitor().unwrap();
                     // find max by width and refresh rate
-                    let mode = monitor.video_modes().max_by_key(|m| m.refresh_rate_millihertz() * m.size().width).unwrap();
+                    let mode = monitor
+                        .video_modes()
+                        .max_by_key(|m| m.refresh_rate_millihertz() * m.size().width)
+                        .unwrap();
                     info!("Entering fullscreen mode {:?}", mode);
-                    self.window.set_fullscreen(Some(Fullscreen::Exclusive(mode)));
-                }
-                else {
+                    self.window
+                        .set_fullscreen(Some(Fullscreen::Exclusive(mode)));
+                } else {
                     let g = range_event_start!("[APP] Exit fullscreen mode");
                     self.window.set_fullscreen(None);
                 }
-            },
+            }
 
             WindowEvent::Touch(t) => {
                 let g = range_event_start!("[APP] Touch event");
@@ -217,7 +306,7 @@ impl App {
                 let elapsed = now.duration_since(prev);
                 self.prev_touch_event_time = now;
                 info!("Elapsed: {:?}", elapsed);
-            },
+            }
 
             WindowEvent::RedrawRequested => {
                 let g = range_event_start!("[APP] Redraw requested");
@@ -242,8 +331,7 @@ impl App {
                 if size.width == 0 || size.height == 0 {
                     warn!("One of dimensions is 0! Suspending rendering...");
                     self.rendering_active = false;
-                }
-                else {
+                } else {
                     if !self.rendering_active {
                         info!("Continue rendering...");
                     }
@@ -257,5 +345,4 @@ impl App {
 
         Ok(())
     }
-
 }
