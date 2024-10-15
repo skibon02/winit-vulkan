@@ -10,8 +10,7 @@ use swapchain_wrapper::SwapchainWrapper;
 use log::{debug, error, info, warn};
 use winit::window::Window;
 
-use ash::vk::{self, make_api_version, ApplicationInfo, BufferUsageFlags, CommandBuffer,
-              Extent2D, FenceCreateFlags, PhysicalDevice, Queue, Semaphore, SurfaceKHR};
+use ash::vk::{self, make_api_version, ApplicationInfo, BufferUsageFlags, CommandBuffer, CommandBufferBeginInfo, DeviceSize, Extent2D, FenceCreateFlags, PhysicalDevice, PipelineBindPoint, PrimitiveTopology, Queue, RenderPassBeginInfo, SampleCountFlags, Semaphore, SurfaceKHR};
 
 use std::ffi::{c_char, CString};
 use std::array::from_fn;
@@ -20,6 +19,9 @@ use winit::dpi::PhysicalSize;
 use winit::raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use render_pass::RenderPassWrapper;
 use crate::app::App;
+use crate::use_shader;
+use crate::vulkan_backend::descriptor_sets::DescriptorSets;
+use crate::vulkan_backend::pipeline::{PipelineDesc, VertexInputDesc, VulkanPipeline};
 use crate::vulkan_backend::wrappers::command_pool::VkCommandPool;
 use crate::vulkan_backend::render_pass::RenderPassResources;
 use crate::vulkan_backend::resource_manager::{BufferResource, ResourceManager};
@@ -52,7 +54,10 @@ pub struct VulkanBackend {
     // stuff for actual rendering
     render_pass: RenderPassWrapper,
     render_pass_resources: RenderPassResources,
+    pipeline: VulkanPipeline,
     vertex_buffer: BufferResource,
+    descriptor_sets: DescriptorSets,
+    vertex_count: usize
 }
 
 
@@ -180,12 +185,26 @@ impl VulkanBackend {
 
         let extent = Extent2D { width: window_size.width, height: window_size.height };
         let swapchain_wrapper = SwapchainWrapper::new(device.clone(), physical_device, extent, surface.clone(), None)?;
-        let render_pass = RenderPassWrapper::new(device.clone(), swapchain_wrapper.get_surface_format(), &mut resource_manager);
+
+        let render_pass = RenderPassWrapper::new(device.clone(), swapchain_wrapper.get_surface_format(), app.get_msaa_samples());
         let render_pass_resources = render_pass.create_render_pass_resources(swapchain_wrapper.get_image_views(),
                                                                          swapchain_wrapper.get_extent(), &mut resource_manager);
 
-        let vertex_buffer = resource_manager.create_buffer(3*4*6, BufferUsageFlags::VERTEX_BUFFER);
+
+
+        let pipeline_desc = PipelineDesc::new(use_shader!("solid"));
+        let vert_desc = VertexInputDesc::new(PrimitiveTopology::TRIANGLE_LIST)
+            .attrib_3_floats()  // 0: Pos 3D
+            .attrib_3_floats();               // 1: Normal 3D
+
+        let total_floats_per_attrib = vert_desc.get_floats_for_binding(0);
+
+        let descriptor_sets = DescriptorSets::new(device.clone(), &mut resource_manager);
+        let pipeline = VulkanPipeline::new(device.clone(), &render_pass, pipeline_desc, vert_desc, descriptor_sets.get_descriptor_set_layout());
+
         let vertex_data = app.get_vertex_data();
+        let vertex_buffer = resource_manager.create_buffer((vertex_data.len() * 4) as DeviceSize, BufferUsageFlags::VERTEX_BUFFER);
+        let vertex_count = vertex_data.len() / total_floats_per_attrib;
 
         resource_manager.fill_buffer(vertex_buffer, &vertex_data);
         Ok(VulkanBackend {
@@ -212,6 +231,9 @@ impl VulkanBackend {
             render_pass,
             render_pass_resources,
             vertex_buffer,
+            pipeline,
+            descriptor_sets,
+            vertex_count
         })
     }
 
@@ -236,6 +258,65 @@ impl VulkanBackend {
         // 3. Recreate swapchain_dependent resources
         self.render_pass_resources = self.render_pass.create_render_pass_resources(
             self.swapchain_wrapper.get_image_views(), self.swapchain_wrapper.get_extent(), &mut self.resource_manager);
+    }
+
+    pub fn update(&mut self) {
+        let color = self.app.new_frame();
+        self.descriptor_sets.update(&mut self.resource_manager, color);
+    }
+
+
+    pub fn record_draw(&mut self, command_buffer: CommandBuffer, image_index: usize) {
+        let device = &self.device;
+        let framebuffer = self.render_pass_resources.framebuffers[image_index];
+        let extent = self.swapchain_wrapper.get_extent();
+
+        let g = range_event_start!("[Vulkan] Command buffer recording");
+        let command_buffer_begin_info = CommandBufferBeginInfo::default();
+        let render_pass_begin_info = RenderPassBeginInfo::default()
+            .render_pass(*self.render_pass.get_render_pass())
+            .framebuffer(framebuffer)
+            .render_area(extent.into())
+            .clear_values(&[vk::ClearValue {
+                    color: vk::ClearColorValue {
+                        float32: [0.8, 0.4, 0.7, 1.0],
+                    },
+                },
+                vk::ClearValue {
+                    depth_stencil: vk::ClearDepthStencilValue {
+                        depth: 1.0,
+                        stencil: 0,
+                    },
+                },
+                vk::ClearValue {
+                    color: vk::ClearColorValue {
+                        float32: [0.8, 0.4, 0.7, 1.0],
+                    },
+                },
+            ]);
+
+        let viewport = vk::Viewport::default()
+            .width(extent.width as f32)
+            .height(extent.height as f32);
+        let scissors = extent.into();
+        unsafe {
+            device.begin_command_buffer(command_buffer, &command_buffer_begin_info).unwrap();
+            device.cmd_begin_render_pass(command_buffer, &render_pass_begin_info, vk::SubpassContents::INLINE);
+
+            //bind dynamic states
+            device.cmd_set_viewport(command_buffer, 0, &[viewport]);
+            device.cmd_set_scissor(command_buffer, 0, &[scissors]);
+            //bind
+            device.cmd_bind_pipeline(command_buffer, PipelineBindPoint::GRAPHICS, self.pipeline.get_pipeline());
+            device.cmd_bind_vertex_buffers(command_buffer, 0, &[self.vertex_buffer.buffer], &[0]);
+            let sets = [self.descriptor_sets.get_set()];
+            device.cmd_bind_descriptor_sets(command_buffer, PipelineBindPoint::GRAPHICS, self.pipeline.get_pipeline_layout(), 0, &sets, &[]);
+            //draw
+            device.cmd_draw(command_buffer, self.vertex_count as u32, 1, 0, 0);
+
+            device.cmd_end_render_pass(command_buffer);
+            device.end_command_buffer(command_buffer).unwrap();
+        }
     }
 
     pub fn render(&mut self) -> anyhow::Result<()> {
@@ -268,16 +349,14 @@ impl VulkanBackend {
 
         // 2) Update
         let g = range_event_start!("[Vulkan] Update");
-        self.render_pass.update(&mut self.resource_manager, self.app.new_frame());
+        self.update();
         drop(g);
 
         // 3) record command buffer (if index was changed)
-        if self.command_buffer_last_index[frame_index] != Some(image_index as usize) {
-            self.render_pass.record_draw(&self.device, cur_command_buffer,
-                                         self.render_pass_resources.framebuffers[image_index as usize],
-                                         self.vertex_buffer.buffer,
-                                         self.swapchain_wrapper.get_extent());
-            self.command_buffer_last_index[frame_index] = Some(image_index as usize);
+        let image_index = image_index as usize;
+        if self.command_buffer_last_index[frame_index] != Some(image_index) {
+            self.record_draw(cur_command_buffer, image_index);
+            self.command_buffer_last_index[frame_index] = Some(image_index);
         };
 
         let g = range_event_start!("[Vulkan] Submit command buffer");
@@ -303,7 +382,7 @@ impl VulkanBackend {
         let g = range_event_start!("[Vulkan] Queue present");
         let swapchains = [self.swapchain_wrapper.get_swapchain()];
         let semaphores = [self.render_finished_semaphores[frame_index]];
-        let image_indices = [image_index];
+        let image_indices = [image_index as u32];
         let present_info = vk::PresentInfoKHR::default()
             .swapchains(&swapchains)
             .image_indices(&image_indices)

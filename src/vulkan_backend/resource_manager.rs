@@ -307,9 +307,9 @@ impl ResourceManager {
     }
 
 
-    pub fn create_image(&mut self, extent: Extent2D, format: vk::Format, tiling: vk::ImageTiling, usage: vk::ImageUsageFlags) -> ImageResource {
+    pub fn create_image(&mut self, extent: Extent2D, format: vk::Format, tiling: vk::ImageTiling, usage: vk::ImageUsageFlags, sample_count: SampleCountFlags) -> ImageResource {
         let extent = Extent3D::from(extent);
-        let image_create_info = image_2d_info(format, usage, extent, SampleCountFlags::TYPE_1, tiling);
+        let image_create_info = image_2d_info(format, usage, extent, sample_count, tiling);
         
         let image = unsafe {self.device.create_image(&image_create_info, None)}.unwrap();
 

@@ -74,8 +74,10 @@ impl DescriptorSets {
     pub fn get_set(&self) -> DescriptorSet {
         self.descriptor_set
     }
+}
 
-    pub unsafe fn destroy(&self) {
+impl Drop for DescriptorSets {
+    fn drop(&mut self) {
         unsafe {
             self.device.destroy_descriptor_pool(self.descriptor_pool, None);
             self.device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);

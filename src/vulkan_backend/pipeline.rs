@@ -1,15 +1,14 @@
 use std::ffi::CStr;
-use std::sync::Arc;
-use ash::Device;
 use ash::vk::{ColorComponentFlags, CompareOp, CullModeFlags, DescriptorSetLayout, DynamicState,
               Format, GraphicsPipelineCreateInfo, Pipeline, PipelineCache, PipelineCacheCreateInfo,
               PipelineColorBlendAttachmentState, PipelineColorBlendStateCreateInfo, PipelineDepthStencilStateCreateInfo,
               PipelineDynamicStateCreateInfo, PipelineInputAssemblyStateCreateInfo, PipelineLayout,
               PipelineLayoutCreateInfo, PipelineMultisampleStateCreateInfo, PipelineRasterizationStateCreateInfo,
               PipelineShaderStageCreateInfo, PipelineVertexInputStateCreateInfo, PipelineViewportStateCreateInfo,
-              PrimitiveTopology, RenderPass, SampleCountFlags, ShaderModuleCreateInfo, ShaderStageFlags,
+              PrimitiveTopology, SampleCountFlags, ShaderModuleCreateInfo, ShaderStageFlags,
               VertexInputAttributeDescription, VertexInputBindingDescription};
 use sparkles_macro::range_event_start;
+use crate::vulkan_backend::render_pass::RenderPassWrapper;
 use crate::vulkan_backend::wrappers::device::VkDeviceRef;
 
 pub struct VulkanPipeline {
@@ -91,6 +90,10 @@ impl VertexInputDesc {
             .vertex_attribute_descriptions(&self.attrib_desc)
             .vertex_binding_descriptions(&self.binding_desc)
     }
+
+    pub fn get_floats_for_binding(&self, i: usize) -> usize {
+        self.stride_per_binding[i] / 4
+    }
 }
 
 impl<'a> PipelineDesc<'a> {
@@ -103,7 +106,7 @@ impl<'a> PipelineDesc<'a> {
 }
 
 impl VulkanPipeline {
-    pub fn new(device: VkDeviceRef, render_pass: &RenderPass, desc: PipelineDesc, mut vert_desc: VertexInputDesc,
+    pub fn new(device: VkDeviceRef, render_pass: &RenderPassWrapper, desc: PipelineDesc, mut vert_desc: VertexInputDesc,
         descriptor_set_layout: DescriptorSetLayout) -> VulkanPipeline {
         let g = range_event_start!("Create pipeline");
         // no descriptor sets
@@ -137,7 +140,7 @@ impl VulkanPipeline {
 
         // pipeline parts
         let multisample_state = PipelineMultisampleStateCreateInfo::default()
-            .rasterization_samples(SampleCountFlags::TYPE_1);
+            .rasterization_samples(render_pass.get_msaa_samples().unwrap_or(SampleCountFlags::TYPE_1));
         let dynamic_state = PipelineDynamicStateCreateInfo::default()
             .dynamic_states(&[DynamicState::VIEWPORT, DynamicState::SCISSOR]);
 
@@ -166,7 +169,7 @@ impl VulkanPipeline {
         let stages = [vert_stage, frag_stage];
         let pipeline_create_info = GraphicsPipelineCreateInfo::default()
             .layout(pipeline_layout)
-            .render_pass(*render_pass)
+            .render_pass(*render_pass.get_render_pass())
             .dynamic_state(&dynamic_state)
             .multisample_state(&multisample_state)
 
@@ -204,10 +207,12 @@ impl VulkanPipeline {
     pub fn get_pipeline_layout(&self) -> PipelineLayout {
         self.pipeline_layout
     }
+}
 
-    pub unsafe fn destroy(&mut self) {
-        self.device.destroy_pipeline_layout(self.pipeline_layout, None);
-        self.device.destroy_pipeline_cache(self.pipeline_cache, None);
-        self.device.destroy_pipeline(self.pipeline, None);
+impl Drop for VulkanPipeline {
+    fn drop(&mut self) {
+        unsafe { self.device.destroy_pipeline_layout(self.pipeline_layout, None); }
+        unsafe { self.device.destroy_pipeline_cache(self.pipeline_cache, None); }
+        unsafe { self.device.destroy_pipeline(self.pipeline, None); }
     }
 }

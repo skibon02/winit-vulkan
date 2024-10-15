@@ -1,11 +1,11 @@
-use ash::{vk, Device, Instance};
+use ash::vk;
 use ash::khr::swapchain;
-use ash::vk::{Extent2D, Format, Image, ImageAspectFlags, ImageTiling, ImageUsageFlags, ImageView, PhysicalDevice, SampleCountFlags, SurfaceKHR, SwapchainKHR};
+use ash::vk::{Extent2D, Format, Image, ImageAspectFlags, ImageTiling, ImageUsageFlags, ImageView, PhysicalDevice, SampleCountFlags, SwapchainKHR};
 use log::info;
 use sparkles_macro::range_event_start;
 use crate::vulkan_backend::wrappers::device::VkDeviceRef;
 use crate::vulkan_backend::wrappers::image::{image_2d_info, imageview_info_for_image, swapchain_info};
-use crate::vulkan_backend::wrappers::surface::{VkSurface, VkSurfaceRef};
+use crate::vulkan_backend::wrappers::surface::VkSurfaceRef;
 
 pub struct SwapchainWrapper {
     swapchain: SwapchainKHR,
