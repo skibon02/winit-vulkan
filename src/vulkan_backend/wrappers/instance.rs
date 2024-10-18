@@ -1,6 +1,7 @@
 use std::ops::Deref;
 use std::sync::Arc;
 use ash::Instance;
+use sparkles_macro::range_event_start;
 
 pub type VkInstanceRef = Arc<VkInstance>;
 
@@ -26,6 +27,7 @@ impl VkInstance {
 
 impl Drop for VkInstance {
     fn drop(&mut self) {
+        let g = range_event_start!("[Vulkan] Destroy instance");
         unsafe { self.instance.destroy_instance(None); }
     }
 }

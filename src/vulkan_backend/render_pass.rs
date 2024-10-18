@@ -176,6 +176,7 @@ impl RenderPassWrapper {
 
     pub fn create_render_pass_resources(&self, image_views: Vec<ImageView>, extent: Extent2D,
                     resource_manager: &mut ResourceManager) -> RenderPassResources {
+        let g = range_event_start!("[Vulkan] Create renderpass resources");
         let swapchain_image_cnt = image_views.len();
 
 
@@ -238,6 +239,7 @@ impl RenderPassWrapper {
 
 impl Drop for RenderPassWrapper {
     fn drop(&mut self) {
+        let g = range_event_start!("[Vulkan] Destroy render pass");
         //render pass
         unsafe { self.device.destroy_render_pass(self.render_pass, None); }
     }

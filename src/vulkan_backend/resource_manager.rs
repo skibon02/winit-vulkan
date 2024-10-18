@@ -1,10 +1,9 @@
 use crate::vulkan_backend::wrappers::command_pool::VkCommandPool;
 use crate::vulkan_backend::wrappers::device::VkDeviceRef;
 use crate::vulkan_backend::wrappers::image::image_2d_info;
-use ash::vk::{
-    self, CommandBufferUsageFlags, Extent2D, Extent3D, ImageCreateInfo, SampleCountFlags,
-};
+use ash::vk::{self, CommandBufferUsageFlags, Extent2D, Extent3D, ImageCreateInfo, SampleCountFlags, Sampler};
 use std::fmt::Debug;
+use sparkles_macro::range_event_start;
 
 #[derive(Debug)]
 pub enum HostAccessPolicy {
@@ -38,6 +37,7 @@ pub struct ResourceManager {
 
     image_resources: Vec<ImageResource>,
     buffer_resources: Vec<BufferResource>,
+    sampler_resources: Vec<Sampler>,
 
     device: VkDeviceRef,
     queue: vk::Queue,
@@ -142,10 +142,11 @@ impl ResourceManager {
         };
 
         Self {
-            buffer_resources: Vec::new(),
             host_access_policy,
 
+            buffer_resources: Vec::new(),
             image_resources: Vec::new(),
+            sampler_resources: Vec::new(),
 
             device,
             queue,
@@ -205,7 +206,7 @@ impl ResourceManager {
 
     pub fn fill_buffer<T: Copy + Debug>(&mut self, resource: BufferResource, data: &[T]) {
         //size checktransfer_completed_fence
-        let size = std::mem::size_of_val(data) as vk::DeviceSize;
+        let size = size_of_val(data) as vk::DeviceSize;
         assert!(size <= resource.size);
 
         match self.host_access_policy {
@@ -402,7 +403,7 @@ impl ResourceManager {
         sample_count: SampleCountFlags,
     ) -> ImageResource {
         let extent = Extent3D::from(extent);
-        let image_create_info = image_2d_info(format, usage, extent, sample_count, tiling);
+        let image_create_info = image_2d_info(format, usage | vk::ImageUsageFlags::TRANSFER_DST, extent, sample_count, tiling);
 
         let image = unsafe { self.device.create_image(&image_create_info, None) }.unwrap();
 
@@ -428,13 +429,17 @@ impl ResourceManager {
 
         unsafe { self.device.bind_image_memory(image, memory, 0) }.unwrap();
 
-        ImageResource {
+        let res = ImageResource {
             image,
             memory,
             size: memory_requirements.size,
             extent,
             info: image_create_info,
-        }
+        };
+        
+        self.image_resources.push(res);
+        
+        res
     }
 
     pub fn destroy_image(&mut self, image: ImageResource) {
@@ -582,10 +587,13 @@ impl ResourceManager {
                 .unwrap();
 
             self.device.queue_wait_idle(self.queue).unwrap();
+
+            self.device.free_memory(memory, None);
+            self.device.destroy_buffer(buffer, None);
         }
     }
 
-    pub fn create_sampler(&self) -> vk::Sampler {
+    pub fn create_sampler(&mut self) -> Sampler {
         let sampler_create_info = vk::SamplerCreateInfo::default()
             .mag_filter(vk::Filter::LINEAR)
             .min_filter(vk::Filter::LINEAR)
@@ -603,16 +611,18 @@ impl ResourceManager {
             .max_lod(0.0)
             .mip_lod_bias(0.0);
 
-        unsafe { self.device.create_sampler(&sampler_create_info, None) }.unwrap()
+        let sampler = unsafe { self.device.create_sampler(&sampler_create_info, None) }.unwrap();
+        self.sampler_resources.push(sampler);
+
+        sampler
     }
 }
 impl Drop for ResourceManager {
     fn drop(&mut self) {
+        let g = range_event_start!("[Vulkan] Destroy resource manager");
         for image_res in self.image_resources.drain(..) {
             unsafe {
                 self.device.free_memory(image_res.memory, None);
-            }
-            unsafe {
                 self.device.destroy_image(image_res.image, None);
             }
         }
@@ -620,15 +630,17 @@ impl Drop for ResourceManager {
         for buffer_res in self.buffer_resources.drain(..) {
             unsafe {
                 self.device.free_memory(buffer_res.memory, None);
-            }
-            unsafe {
                 self.device.destroy_buffer(buffer_res.buffer, None);
+            }
+        }
+        for sampler_res in self.sampler_resources.drain(..) {
+            unsafe {
+                self.device.destroy_sampler(sampler_res, None);
             }
         }
 
         unsafe {
-            self.device
-                .destroy_fence(self.transfer_completed_fence, None);
+            self.device.destroy_fence(self.transfer_completed_fence, None);
         }
     }
 }

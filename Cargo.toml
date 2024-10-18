@@ -14,9 +14,11 @@ name = "winit-vulkan"
 winit = { version = "0.30.5", features = ["android-native-activity"] }
 ash = { version = "0.38.0", features = ["linked"] }
 jni = "0.21.1"
+ash-window = "0.13.0"
 
 log = "0.4.22"
 simple_logger = { version = "5.0.0"}
+android_logger = { version = "0.14.1", optional = true }
 
 # errors
 anyhow = { version = "1.0.86" }
@@ -26,8 +28,7 @@ thiserror = "1.0.63"
 sparkles = "0.1.4"
 sparkles-macro = "0.1.4"
 
-android_logger = { version = "0.14.1", optional = true }
-ash-window = "0.13.0"
+image = "0.25.2"
 
 [features]
 default = ["validation_layers"]

@@ -1,9 +1,11 @@
 pub mod app;
 pub mod vulkan_backend;
+pub mod util;
 
 use log::{error, info, warn};
 use sparkles_macro::{instant_event, range_event_start};
 use std::time::Instant;
+use sparkles::FinalizeGuard;
 use winit::application::ApplicationHandler;
 use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::NamedKey;
@@ -158,11 +160,13 @@ pub fn run(event_loop: EventLoop<()>) {
 
 struct WinitApp {
     app: Option<App>,
+    g: FinalizeGuard,
 }
 
 impl WinitApp {
     fn new() -> Self {
-        Self { app: None }
+        let g = sparkles::init_default();
+        Self { app: None, g }
     }
 }
 
@@ -197,7 +201,6 @@ impl ApplicationHandler for WinitApp {
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
         let g = range_event_start!("[WINIT] Exiting");
         info!("\t\t*** APP EXITING ***");
-        sparkles::finalize();
     }
     //
     // fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {

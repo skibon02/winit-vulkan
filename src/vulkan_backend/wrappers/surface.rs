@@ -3,6 +3,7 @@ use anyhow::Context;
 use ash::Entry;
 use ash::vk::{PhysicalDevice, SurfaceKHR};
 use ash_window::create_surface;
+use sparkles_macro::range_event_start;
 use winit::raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 use crate::vulkan_backend::wrappers::instance::VkInstanceRef;
 
@@ -40,6 +41,7 @@ impl VkSurface {
 impl Drop for VkSurface {
     fn drop(&mut self) {
         unsafe {
+            let g = range_event_start!("[Vulkan] Destroy surface");
             self.surface_loader.destroy_surface(self.surface, None);
         }
     }

@@ -211,6 +211,7 @@ impl VulkanPipeline {
 
 impl Drop for VulkanPipeline {
     fn drop(&mut self) {
+        let g = range_event_start!("[Vulkan] Destroy pipeline");
         unsafe { self.device.destroy_pipeline_layout(self.pipeline_layout, None); }
         unsafe { self.device.destroy_pipeline_cache(self.pipeline_cache, None); }
         unsafe { self.device.destroy_pipeline(self.pipeline, None); }

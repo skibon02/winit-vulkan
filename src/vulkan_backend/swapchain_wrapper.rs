@@ -132,6 +132,7 @@ impl SwapchainWrapper {
 
 impl Drop for SwapchainWrapper {
     fn drop(&mut self) {
+        let g = range_event_start!("[Vulkan] Destroy swapchain");
         for image_view in self.swapchain_image_views.iter() {
             unsafe { self.device.destroy_image_view(*image_view, None); }
         }

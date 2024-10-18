@@ -45,7 +45,7 @@ pub struct VulkanBackend {
 
     resource_manager: ResourceManager,
 
-    // 3 instances of command buffer for each swapchain image
+    // 3 instances of command buffer for each swapchain image for triple buffering (max 2 in-flight frames)
     command_buffers: [CommandBuffer; 3],
     image_available_semaphores: [Semaphore; 3],
     render_finished_semaphores: [Semaphore; 3],
@@ -295,6 +295,7 @@ impl VulkanBackend {
     }
 
     pub fn recreate_resize(&mut self, new_extent: PhysicalSize<u32>) {
+        let g = range_event_start!("[Vulkan] Recreate swapchain");
         let new_extent = Extent2D {
             width: new_extent.width,
             height: new_extent.height,
@@ -390,15 +391,7 @@ impl VulkanBackend {
                 self.pipeline.get_pipeline(),
             );
             device.cmd_bind_vertex_buffers(command_buffer, 0, &[self.vertex_buffer.buffer], &[0]);
-            let sets = [self.descriptor_sets.get_set()];
-            device.cmd_bind_descriptor_sets(
-                command_buffer,
-                PipelineBindPoint::GRAPHICS,
-                self.pipeline.get_pipeline_layout(),
-                0,
-                &sets,
-                &[],
-            );
+            self.descriptor_sets.bind_sets(command_buffer, self.pipeline.get_pipeline_layout());
             //draw
             device.cmd_draw(command_buffer, self.vertex_count as u32, 1, 0, 0);
 
