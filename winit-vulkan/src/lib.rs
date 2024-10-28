@@ -3,6 +3,9 @@ pub mod vulkan_backend;
 pub mod util;
 pub mod renderer;
 
+#[cfg(target_os = "android")]
+mod android;
+
 use std::fs;
 use log::{error, info, warn};
 use sparkles_macro::{instant_event, range_event_start};
@@ -13,175 +16,39 @@ use winit::event_loop::{ActiveEventLoop, EventLoopBuilder};
 use winit::keyboard::NamedKey;
 use winit::window::{Fullscreen, Window, WindowAttributes, WindowId};
 use winit::{event::WindowEvent, event_loop::EventLoop, keyboard};
-
 use crate::vulkan_backend::VulkanBackend;
-#[cfg(target_os = "android")]
-use winit::platform::android::activity::*;
-use winit::platform::android::EventLoopBuilderExtAndroid;
+use crate::app::AppTrait;
 
 #[cfg(target_os = "android")]
-#[no_mangle]
-fn android_main(app: AndroidApp) {
-    use jni::objects::{JObject, JObjectArray, JValue};
-    use jni::JavaVM;
-    use winit::platform::android::EventLoopBuilderExtAndroid;
-
-    let g = range_event_start!("android_main init");
-
-
-    android_logger::init_once(
-        android_logger::Config::default().with_max_level(log::LevelFilter::Info),
-    );
-
-    let vm = unsafe { JavaVM::from_raw(app.vm_as_ptr() as _) }.unwrap();
-    let mut env = vm.get_env().unwrap();
-
-    let activity = unsafe { JObject::from_raw(app.activity_as_ptr() as jni::sys::jobject) };
-
-    let windowmanager = env
-        .call_method(
-            &activity,
-            "getWindowManager",
-            "()Landroid/view/WindowManager;",
-            &[],
-        )
-        .unwrap()
-        .l()
-        .unwrap();
-    let display = env
-        .call_method(
-            &windowmanager,
-            "getDefaultDisplay",
-            "()Landroid/view/Display;",
-            &[],
-        )
-        .unwrap()
-        .l()
-        .unwrap();
-    let supported_modes = env
-        .call_method(
-            &display,
-            "getSupportedModes",
-            "()[Landroid/view/Display$Mode;",
-            &[],
-        )
-        .unwrap()
-        .l()
-        .unwrap();
-    let supported_modes = JObjectArray::from(supported_modes);
-    let length = env.get_array_length(&supported_modes).unwrap();
-    info!("Found {} supported modes", length);
-    let mut modes = Vec::new();
-    for i in 0..length {
-        let mode = env.get_object_array_element(&supported_modes, i).unwrap();
-        let height = env
-            .call_method(&mode, "getPhysicalHeight", "()I", &[])
-            .unwrap()
-            .i()
-            .unwrap();
-        let width = env
-            .call_method(&mode, "getPhysicalWidth", "()I", &[])
-            .unwrap()
-            .i()
-            .unwrap();
-        let refresh_rate = env
-            .call_method(&mode, "getRefreshRate", "()F", &[])
-            .unwrap()
-            .f()
-            .unwrap();
-        let index = env
-            .call_method(&mode, "getModeId", "()I", &[])
-            .unwrap()
-            .i()
-            .unwrap();
-        modes.push((index, refresh_rate));
-        info!("Mode {}: {}x{}@{}", index, width, height, refresh_rate);
-    }
-
-    let mut max_framerate_mode = modes
-        .iter()
-        .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
-        .unwrap();
-    info!("Max framerate: {}", max_framerate_mode.1);
-
-    let preferred_id = 1;
-
-    let window = env
-        .call_method(&activity, "getWindow", "()Landroid/view/Window;", &[])
-        .unwrap()
-        .l()
-        .unwrap();
-
-    let layout_params_class = env
-        .find_class("android/view/WindowManager$LayoutParams")
-        .unwrap();
-    let layout_params = env
-        .call_method(
-            window,
-            "getAttributes",
-            "()Landroid/view/WindowManager$LayoutParams;",
-            &[],
-        )
-        .unwrap()
-        .l()
-        .unwrap();
-
-    let preferred_display_mode_id_field_id = env
-        .get_field_id(layout_params_class, "preferredDisplayModeId", "I")
-        .unwrap();
-    env.set_field_unchecked(
-        &layout_params,
-        preferred_display_mode_id_field_id,
-        JValue::from(preferred_id),
-    )
-    .unwrap();
-
-    let window = env
-        .call_method(&activity, "getWindow", "()Landroid/view/Window;", &[])
-        .unwrap()
-        .l()
-        .unwrap();
-    env.call_method(
-        window,
-        "setAttributes",
-        "(Landroid/view/WindowManager$LayoutParams;)V",
-        &[(&layout_params).into()],
-    )
-    .unwrap();
-
-    drop(g);
-    run(Some(app));
-}
+pub use winit::platform::android::activity::AndroidApp;
 
 #[cfg(target_os = "android")]
-const RESOURCES_DIR: &str = "/data/user/0/com.skygrel19.winit_vulkan/assets/resources";
-#[cfg(not(target_os = "android"))]
-const RESOURCES_DIR: &str = "resources";
-
-pub fn run(android_app: Option<AndroidApp>) {
-    let event_loop = if let Some(android_app) = android_app {
-        EventLoopBuilder::default().with_android_app(android_app).build().unwrap()
-    }
-    else {
-        EventLoop::new().unwrap()
-    };
-    let mut winit_app = WinitApp::new();
+pub fn run_android<A: AppTrait>(app: AndroidApp) {
+    let event_loop = android::android_main(app);
+    let mut winit_app: WinitApp<A> = WinitApp::new();
     event_loop.run_app(&mut winit_app).unwrap();
 }
 
-struct WinitApp {
-    app: Option<App>,
+#[cfg(not(target_os = "android"))]
+pub fn run<A: AppTrait>() {
+    let event_loop = EventLoop::new().unwrap();
+    let mut winit_app: WinitApp<A> = WinitApp::new();
+    event_loop.run_app(&mut winit_app).unwrap();
+}
+
+struct WinitApp<A> {
+    app_state: Option<AppState<A>>,
     g: FinalizeGuard,
 }
 
-impl WinitApp {
+impl<A: AppTrait> WinitApp<A> {
     fn new() -> Self {
         let g = sparkles::init_default();
-        Self { app: None, g }
+        Self { app_state: None, g }
     }
 }
 
-impl ApplicationHandler for WinitApp {
+impl<A: AppTrait> ApplicationHandler for WinitApp<A> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let g = range_event_start!("[WINIT] resumed");
         info!("\t\t*** APP RESUMED ***");
@@ -189,8 +56,8 @@ impl ApplicationHandler for WinitApp {
             .create_window(WindowAttributes::default().with_title("DAMNDASHIE"))
             .unwrap();
 
-        let app = App::new_winit(window);
-        self.app = Some(app);
+        let app_state = AppState::new_winit(window);
+        self.app_state = Some(app_state);
     }
 
     fn window_event(
@@ -200,11 +67,11 @@ impl ApplicationHandler for WinitApp {
         event: WindowEvent,
     ) {
         let g = range_event_start!("[WINIT] window event");
-        if self.app.as_mut().unwrap().is_finished() {
+        if self.app_state.as_mut().unwrap().is_finished() {
             info!("Exit requested!");
             event_loop.exit();
         }
-        if let Err(e) = self.app.as_mut().unwrap().handle_event(event_loop, event) {
+        if let Err(e) = self.app_state.as_mut().unwrap().handle_event(event_loop, event) {
             error!("Error handling event: {:?}", e);
         }
     }
@@ -224,7 +91,9 @@ impl ApplicationHandler for WinitApp {
     }
 }
 
-pub struct App {
+pub struct AppState<A> {
+    user_app: A,
+
     app_finished: bool,
     prev_touch_event_time: Instant,
 
@@ -242,11 +111,15 @@ pub enum AppResult {
     Exit,
 }
 
-impl App {
-    pub fn new_winit(window: Window) -> App {
-        let vulkan_backend = VulkanBackend::new_for_window(&window, app::App::new()).unwrap();
+impl<A: AppTrait> AppState<A> {
+    pub fn new_winit(window: Window) -> AppState<A> {
+        let user_app = A::new();
+
+        let vulkan_backend = VulkanBackend::new_for_window(&window, &user_app).unwrap();
 
         Self {
+            user_app,
+
             app_finished: false,
             prev_touch_event_time: Instant::now(),
 
@@ -325,7 +198,7 @@ impl App {
             WindowEvent::RedrawRequested => {
                 let g = range_event_start!("[APP] Redraw requested");
                 if !self.app_finished && self.rendering_active {
-                    self.vulkan_backend.render()?;
+                    self.vulkan_backend.render(&mut self.user_app)?;
 
                     self.frame_cnt += 1;
                     if self.last_sec.elapsed().as_secs() >= 1 {

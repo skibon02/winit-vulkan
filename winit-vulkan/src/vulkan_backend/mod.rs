@@ -16,7 +16,7 @@ use ash::vk::{
     PipelineBindPoint, PrimitiveTopology, Queue, RenderPassBeginInfo, Semaphore,
 };
 
-use crate::app::App;
+use crate::app::AppTrait;
 use crate::use_shader;
 use crate::vulkan_backend::descriptor_sets::DescriptorSets;
 use crate::vulkan_backend::pipeline::{PipelineDesc, VertexInputDesc, VulkanPipeline};
@@ -35,7 +35,6 @@ use winit::dpi::PhysicalSize;
 use winit::raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 
 pub struct VulkanBackend {
-    app: App,
     debug_utils: VkDebugUtils,
     surface: VkSurfaceRef,
     physical_device: PhysicalDevice,
@@ -68,7 +67,7 @@ impl VulkanBackend {
     /// Initialize vulkan resources and use window to create surface
     ///
     /// Must be called from main thread!
-    pub fn new_for_window(window: &Window, app: App) -> anyhow::Result<Self> {
+    pub fn new_for_window(window: &Window, app: &impl AppTrait) -> anyhow::Result<Self> {
         let g = range_event_start!("[Vulkan] INIT");
         // we need window_handle to create Vulkan surface
         let window_handle = window.raw_window_handle()?;
@@ -229,10 +228,19 @@ impl VulkanBackend {
             None,
         )?;
 
+        let msaa_samples = app.get_msaa_samples().map(|v| match v {
+            1 => vk::SampleCountFlags::TYPE_1,
+            2 => vk::SampleCountFlags::TYPE_2,
+            4 => vk::SampleCountFlags::TYPE_4,
+            8 => vk::SampleCountFlags::TYPE_8,
+            16 => vk::SampleCountFlags::TYPE_16,
+            _ => vk::SampleCountFlags::TYPE_1,
+        });
+
         let render_pass = RenderPassWrapper::new(
             device.clone(),
             swapchain_wrapper.get_surface_format(),
-            app.get_msaa_samples(),
+            msaa_samples,
         );
         let render_pass_resources = render_pass.create_render_pass_resources(
             swapchain_wrapper.get_image_views(),
@@ -265,8 +273,6 @@ impl VulkanBackend {
 
         resource_manager.fill_buffer(vertex_buffer, &vertex_data);
         Ok(VulkanBackend {
-            app,
-
             surface,
             debug_utils,
 
@@ -331,8 +337,8 @@ impl VulkanBackend {
         );
     }
 
-    pub fn update(&mut self) {
-        let color = self.app.new_frame();
+    pub fn update(&mut self, app: &mut impl AppTrait) {
+        let color = app.new_frame();
         self.descriptor_sets
             .update(&mut self.resource_manager, color);
     }
@@ -400,7 +406,7 @@ impl VulkanBackend {
         }
     }
 
-    pub fn render(&mut self) -> anyhow::Result<()> {
+    pub fn render(&mut self, app: &mut impl AppTrait) -> anyhow::Result<()> {
         let g = range_event_start!("[Vulkan] render");
         let frame_index = self.cur_command_buffer;
         self.cur_command_buffer = (frame_index + 1) % 3;
@@ -436,7 +442,7 @@ impl VulkanBackend {
 
         // 2) Update
         let g = range_event_start!("[Vulkan] Update");
-        self.update();
+        self.update(app);
         drop(g);
 
         // 3) record command buffer (if index was changed)

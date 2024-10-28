@@ -1,12 +1,10 @@
-use std::path::PathBuf;
 use crate::vulkan_backend::resource_manager::{BufferResource, ResourceManager};
 use crate::vulkan_backend::wrappers::device::VkDeviceRef;
 use ash::vk;
 use ash::vk::{BufferUsageFlags, CommandBuffer, DescriptorBufferInfo, DescriptorPool, DescriptorPoolSize, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorType, Extent2D, ImageTiling, PipelineBindPoint, PipelineLayout, SampleCountFlags, ShaderStageFlags, WriteDescriptorSet, WHOLE_SIZE};
-use log::info;
 use sparkles_macro::range_event_start;
-use crate::RESOURCES_DIR;
-use crate::util::image::read_image_from_file;
+use crate::util::get_resource;
+use crate::util::image::read_image_from_bytes;
 use crate::vulkan_backend::wrappers::image::imageview_info_for_image;
 
 pub struct DescriptorSets {
@@ -75,8 +73,8 @@ impl DescriptorSets {
         // Create resources
         let buffer = resource_manager.create_buffer(3 * 4, BufferUsageFlags::UNIFORM_BUFFER);
         resource_manager.fill_buffer(buffer, &[0.0f32, 0.0, 0.0]);
-        info!("Trying to open file {}...", PathBuf::from(RESOURCES_DIR).join("damndashie.png").display());
-        let (image_data, extent) = read_image_from_file(PathBuf::from(RESOURCES_DIR).join("damndashie.png")).unwrap();
+        let data = get_resource("resources/damndashie.png".into()).unwrap();
+        let (image_data, extent) = read_image_from_bytes(data).unwrap();
 
         let image = resource_manager.create_image(extent, vk::Format::R8G8B8A8_UNORM, ImageTiling::OPTIMAL,
                                                   vk::ImageUsageFlags::SAMPLED, SampleCountFlags::TYPE_1);

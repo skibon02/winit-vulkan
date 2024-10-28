@@ -11,8 +11,8 @@ pub enum ReadImageError {
     ZeroSize,
 }
 pub type ReadImageResult<T> = Result<T, ReadImageError>;
-pub fn read_image_from_file(image_path: PathBuf) -> ReadImageResult<(Vec<u8>, Extent2D)> {
-    let image_object = image::open(image_path)?;
+pub fn read_image_from_bytes(image_bytes: Vec<u8>) -> ReadImageResult<(Vec<u8>, Extent2D)> {
+    let image_object = image::load_from_memory(&image_bytes)?;
 
     let (image_width, image_height) = (image_object.width(), image_object.height());
 
