@@ -1,0 +1,29 @@
+[package]
+name = "winit-vulkan"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# system
+winit = { version = "0.30.5", features = ["android-native-activity"] }
+ash = { version = "0.38.0", features = ["linked"] }
+jni = "0.21.1"
+ash-window = "0.13.0"
+
+log = "0.4.22"
+android_logger = { version = "0.14.1", optional = true }
+
+# errors
+anyhow = { version = "1.0.86" }
+thiserror = "1.0.63"
+
+# sparkles
+sparkles = "0.1.4"
+sparkles-macro = "0.1.4"
+
+image = "0.25.2"
+
+[features]
+default = ["validation_layers"]
+android = ["dep:android_logger"]
+validation_layers = []
