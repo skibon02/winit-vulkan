@@ -3,8 +3,8 @@ use anyhow::Context;
 use ash::Entry;
 use ash::vk::{PhysicalDevice, SurfaceKHR};
 use ash_window::create_surface;
+use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 use sparkles_macro::range_event_start;
-use winit::raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 use crate::vulkan_backend::wrappers::instance::VkInstanceRef;
 
 pub type VkSurfaceRef = Arc<VkSurface>;

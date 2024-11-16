@@ -1,3 +1,6 @@
 [workspace]
-members = ["winit-vulkan", "app"]
+members = ["app", "framework", "renderer"]
 resolver = "2"
+
+[profile.release]
+debug=true

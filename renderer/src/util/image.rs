@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use ash::vk::Extent2D;
 use image::{DynamicImage, ImageResult};
 use thiserror::Error;

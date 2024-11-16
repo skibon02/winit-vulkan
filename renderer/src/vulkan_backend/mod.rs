@@ -4,11 +4,12 @@ pub mod render_pass;
 pub mod resource_manager;
 pub mod swapchain_wrapper;
 pub mod wrappers;
+pub mod config;
+pub(super) mod object_resource_pool;
 
 use swapchain_wrapper::SwapchainWrapper;
 
 use log::{debug, error, info, warn};
-use winit::window::Window;
 
 use ash::vk::{
     self, make_api_version, ApplicationInfo, BufferUsageFlags, CommandBuffer,
@@ -16,7 +17,6 @@ use ash::vk::{
     PipelineBindPoint, PrimitiveTopology, Queue, RenderPassBeginInfo, Semaphore,
 };
 
-use crate::app::AppTrait;
 use crate::use_shader;
 use crate::vulkan_backend::descriptor_sets::DescriptorSets;
 use crate::vulkan_backend::pipeline::{PipelineDesc, VertexInputDesc, VulkanPipeline};
@@ -31,10 +31,14 @@ use render_pass::RenderPassWrapper;
 use sparkles_macro::{instant_event, range_event_start};
 use std::array::from_fn;
 use std::ffi::{c_char, CString};
-use winit::dpi::PhysicalSize;
-use winit::raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
+use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
+use crate::state::DrawStateDiff;
+use crate::vulkan_backend::config::VulkanRenderConfig;
+use crate::vulkan_backend::object_resource_pool::ObjectResourcePool;
 
 pub struct VulkanBackend {
+    config: VulkanRenderConfig,
+
     debug_utils: VkDebugUtils,
     surface: VkSurfaceRef,
     physical_device: PhysicalDevice,
@@ -44,38 +48,30 @@ pub struct VulkanBackend {
 
     resource_manager: ResourceManager,
 
-    // 3 instances of command buffer for each swapchain image for triple buffering (max 2 in-flight frames)
-    command_buffers: [CommandBuffer; 3],
-    image_available_semaphores: [Semaphore; 3],
-    render_finished_semaphores: [Semaphore; 3],
-    fences: [vk::Fence; 3],
+    command_buffers: [CommandBuffer; 1],
+    image_available_semaphores: [Semaphore; 1],
+    render_finished_semaphores: [Semaphore; 1],
+    fences: [vk::Fence; 1],
     cur_command_buffer: usize,
-    command_buffer_last_index: [Option<usize>; 3],
+    command_buffer_last_index: [Option<usize>; 1],
 
     swapchain_wrapper: SwapchainWrapper,
+
+    object_resource_pool: ObjectResourcePool,
 
     // stuff for actual rendering
     render_pass: RenderPassWrapper,
     render_pass_resources: RenderPassResources,
-    pipeline: VulkanPipeline,
-    vertex_buffer: BufferResource,
-    descriptor_sets: DescriptorSets,
-    vertex_count: usize,
 }
 
 impl VulkanBackend {
     /// Initialize vulkan resources and use window to create surface
     ///
     /// Must be called from main thread!
-    pub fn new_for_window(window: &Window, app: &impl AppTrait) -> anyhow::Result<Self> {
+    pub fn new_for_window(window_handle: RawWindowHandle, display_handle: RawDisplayHandle, window_size: (u32, u32), config: VulkanRenderConfig) -> anyhow::Result<Self> {
         let g = range_event_start!("[Vulkan] INIT");
-        // we need window_handle to create Vulkan surface
-        let window_handle = window.raw_window_handle()?;
-        // we need display_handle to get required extensions
-        let display_handle = window.raw_display_handle()?;
-        let window_size = window.inner_size();
         info!(
-            "Vulkan init started! Got window with dimensions: {:?}",
+            "Vulkan init started! Initializing for size: {:?}",
             window_size
         );
 
@@ -191,7 +187,7 @@ impl VulkanBackend {
 
         let queue = unsafe { device.get_device_queue(queue_family_index, 0) };
         let command_pool = VkCommandPool::new(device.clone(), queue_family_index);
-        let command_buffers = command_pool.alloc_command_buffers(3);
+        let command_buffers = command_pool.alloc_command_buffers(1);
 
         let image_available_semaphores = from_fn(|_| unsafe {
             device
@@ -217,8 +213,8 @@ impl VulkanBackend {
             ResourceManager::new(physical_device, device.clone(), queue, &command_pool);
 
         let extent = Extent2D {
-            width: window_size.width,
-            height: window_size.height,
+            width: window_size.0,
+            height: window_size.1,
         };
         let swapchain_wrapper = SwapchainWrapper::new(
             device.clone(),
@@ -228,14 +224,7 @@ impl VulkanBackend {
             None,
         )?;
 
-        let msaa_samples = app.get_msaa_samples().map(|v| match v {
-            1 => vk::SampleCountFlags::TYPE_1,
-            2 => vk::SampleCountFlags::TYPE_2,
-            4 => vk::SampleCountFlags::TYPE_4,
-            8 => vk::SampleCountFlags::TYPE_8,
-            16 => vk::SampleCountFlags::TYPE_16,
-            _ => vk::SampleCountFlags::TYPE_1,
-        });
+        let msaa_samples = config.get_msaa_samples();
 
         let render_pass = RenderPassWrapper::new(
             device.clone(),
@@ -248,31 +237,12 @@ impl VulkanBackend {
             &mut resource_manager,
         );
 
-        let pipeline_desc = PipelineDesc::new(use_shader!("solid"));
-        let vert_desc = VertexInputDesc::new(PrimitiveTopology::TRIANGLE_LIST)
-            .attrib_3_floats() // 0: Pos 3D
-            .attrib_3_floats(); // 1: Normal 3D
+        let object_resource_pool = ObjectResourcePool::new(device.clone());
 
-        let total_floats_per_attrib = vert_desc.get_floats_for_binding(0);
 
-        let descriptor_sets = DescriptorSets::new(device.clone(), &mut resource_manager);
-        let pipeline = VulkanPipeline::new(
-            device.clone(),
-            &render_pass,
-            pipeline_desc,
-            vert_desc,
-            descriptor_sets.get_descriptor_set_layout(),
-        );
-
-        let vertex_data = app.get_vertex_data();
-        let vertex_buffer = resource_manager.create_buffer(
-            (vertex_data.len() * 4) as DeviceSize,
-            BufferUsageFlags::VERTEX_BUFFER,
-        );
-        let vertex_count = vertex_data.len() / total_floats_per_attrib;
-
-        resource_manager.fill_buffer(vertex_buffer, &vertex_data);
         Ok(VulkanBackend {
+            config,
+
             surface,
             debug_utils,
 
@@ -289,27 +259,25 @@ impl VulkanBackend {
             render_finished_semaphores,
             fences,
             cur_command_buffer: 0,
-            command_buffer_last_index: [None; 3],
+            command_buffer_last_index: [None; 1],
+
+            object_resource_pool,
 
             render_pass,
             render_pass_resources,
-            vertex_buffer,
-            pipeline,
-            descriptor_sets,
-            vertex_count,
         })
     }
 
-    pub fn recreate_resize(&mut self, new_extent: PhysicalSize<u32>) {
+    pub fn recreate_resize(&mut self, new_extent: (u32, u32)) {
         let g = range_event_start!("[Vulkan] Recreate swapchain");
         let new_extent = Extent2D {
-            width: new_extent.width,
-            height: new_extent.height,
+            width: new_extent.0,
+            height: new_extent.1,
         };
         self.wait_idle();
 
         //clear states
-        self.command_buffer_last_index = [None; 3];
+        self.command_buffer_last_index = [None; 1];
 
         // 1. Destroy swapchain dependent resources
         unsafe {
@@ -337,79 +305,10 @@ impl VulkanBackend {
         );
     }
 
-    pub fn update(&mut self, app: &mut impl AppTrait) {
-        let color = app.new_frame();
-        self.descriptor_sets
-            .update(&mut self.resource_manager, color);
-    }
-
-    pub fn record_draw(&mut self, command_buffer: CommandBuffer, image_index: usize) {
-        let device = &self.device;
-        let framebuffer = self.render_pass_resources.framebuffers[image_index];
-        let extent = self.swapchain_wrapper.get_extent();
-
-        let g = range_event_start!("[Vulkan] Command buffer recording");
-        let command_buffer_begin_info = CommandBufferBeginInfo::default();
-        let render_pass_begin_info = RenderPassBeginInfo::default()
-            .render_pass(*self.render_pass.get_render_pass())
-            .framebuffer(framebuffer)
-            .render_area(extent.into())
-            .clear_values(&[
-                vk::ClearValue {
-                    color: vk::ClearColorValue {
-                        float32: [0.8, 0.4, 0.7, 1.0],
-                    },
-                },
-                vk::ClearValue {
-                    depth_stencil: vk::ClearDepthStencilValue {
-                        depth: 1.0,
-                        stencil: 0,
-                    },
-                },
-                vk::ClearValue {
-                    color: vk::ClearColorValue {
-                        float32: [0.8, 0.4, 0.7, 1.0],
-                    },
-                },
-            ]);
-
-        let viewport = vk::Viewport::default()
-            .width(extent.width as f32)
-            .height(extent.height as f32);
-        let scissors = extent.into();
-        unsafe {
-            device
-                .begin_command_buffer(command_buffer, &command_buffer_begin_info)
-                .unwrap();
-            device.cmd_begin_render_pass(
-                command_buffer,
-                &render_pass_begin_info,
-                vk::SubpassContents::INLINE,
-            );
-
-            //bind dynamic states
-            device.cmd_set_viewport(command_buffer, 0, &[viewport]);
-            device.cmd_set_scissor(command_buffer, 0, &[scissors]);
-            //bind
-            device.cmd_bind_pipeline(
-                command_buffer,
-                PipelineBindPoint::GRAPHICS,
-                self.pipeline.get_pipeline(),
-            );
-            device.cmd_bind_vertex_buffers(command_buffer, 0, &[self.vertex_buffer.buffer], &[0]);
-            self.descriptor_sets.bind_sets(command_buffer, self.pipeline.get_pipeline_layout());
-            //draw
-            device.cmd_draw(command_buffer, self.vertex_count as u32, 1, 0, 0);
-
-            device.cmd_end_render_pass(command_buffer);
-            device.end_command_buffer(command_buffer).unwrap();
-        }
-    }
-
-    pub fn render(&mut self, app: &mut impl AppTrait) -> anyhow::Result<()> {
+    pub fn render(&mut self, draw_state_diff: DrawStateDiff) -> anyhow::Result<()> {
         let g = range_event_start!("[Vulkan] render");
         let frame_index = self.cur_command_buffer;
-        self.cur_command_buffer = (frame_index + 1) % 3;
+        self.cur_command_buffer = (frame_index + 1) % self.command_buffers.len();
         let cur_fence = self.fences[frame_index];
         let cur_command_buffer = self.command_buffers[frame_index];
 
@@ -421,6 +320,8 @@ impl VulkanBackend {
                 .unwrap();
             drop(g);
             self.device.reset_fences(&[cur_fence]).unwrap();
+
+
             let g = range_event_start!("[Vulkan] Acquire next image...");
             let res = self
                 .swapchain_wrapper
@@ -441,8 +342,9 @@ impl VulkanBackend {
         }
 
         // 2) Update
-        let g = range_event_start!("[Vulkan] Update");
-        self.update(app);
+        let g = range_event_start!("[Vulkan] Update draw state");
+
+        self.object_resource_pool.apply_state(&mut self.resource_manager, draw_state_diff, &self.render_pass);
         drop(g);
 
         // 3) record command buffer (if index was changed)
@@ -499,7 +401,63 @@ impl VulkanBackend {
         Ok(())
     }
 
-    pub fn wait_idle(&self) {
+    fn record_draw(&mut self, command_buffer: CommandBuffer, image_index: usize) {
+        let device = &self.device;
+        let framebuffer = self.render_pass_resources.framebuffers[image_index];
+        let extent = self.swapchain_wrapper.get_extent();
+
+        let g = range_event_start!("[Vulkan] Command buffer recording");
+        let command_buffer_begin_info = CommandBufferBeginInfo::default();
+        let render_pass_begin_info = RenderPassBeginInfo::default()
+            .render_pass(*self.render_pass.get_render_pass())
+            .framebuffer(framebuffer)
+            .render_area(extent.into())
+            .clear_values(&[
+                vk::ClearValue {
+                    color: vk::ClearColorValue {
+                        float32: [0.8, 0.4, 0.7, 1.0],
+                    },
+                },
+                vk::ClearValue {
+                    depth_stencil: vk::ClearDepthStencilValue {
+                        depth: 1.0,
+                        stencil: 0,
+                    },
+                },
+                vk::ClearValue {
+                    color: vk::ClearColorValue {
+                        float32: [0.8, 0.4, 0.7, 1.0],
+                    },
+                },
+            ]);
+
+        let viewport = vk::Viewport::default()
+            .width(extent.width as f32)
+            .height(extent.height as f32);
+        let scissors = extent.into();
+        unsafe {
+            device
+                .begin_command_buffer(command_buffer, &command_buffer_begin_info)
+                .unwrap();
+            device.cmd_begin_render_pass(
+                command_buffer,
+                &render_pass_begin_info,
+                vk::SubpassContents::INLINE,
+            );
+
+            //bind dynamic states
+            device.cmd_set_viewport(command_buffer, 0, &[viewport]);
+            device.cmd_set_scissor(command_buffer, 0, &[scissors]);
+
+            // draw object states
+            self.object_resource_pool.record_draw_commands(command_buffer);
+
+            device.cmd_end_render_pass(command_buffer);
+            device.end_command_buffer(command_buffer).unwrap();
+        }
+    }
+
+    fn wait_idle(&self) {
         let start = std::time::Instant::now();
         unsafe {
             self.device.device_wait_idle().unwrap();

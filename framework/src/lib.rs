@@ -1,8 +1,3 @@
-pub mod app;
-pub mod vulkan_backend;
-pub mod util;
-pub mod renderer;
-
 #[cfg(target_os = "android")]
 mod android;
 
@@ -16,11 +11,15 @@ use winit::event_loop::{ActiveEventLoop, EventLoopBuilder};
 use winit::keyboard::NamedKey;
 use winit::window::{Fullscreen, Window, WindowAttributes, WindowId};
 use winit::{event::WindowEvent, event_loop::EventLoop, keyboard};
-use crate::vulkan_backend::VulkanBackend;
-use crate::app::AppTrait;
+
 
 #[cfg(target_os = "android")]
 pub use winit::platform::android::activity::AndroidApp;
+use winit::raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
+use renderer::vulkan_backend::VulkanBackend;
+
+use renderer::state::DrawStateDiff;
+use renderer::vulkan_backend::config::VulkanRenderConfig;
 
 #[cfg(target_os = "android")]
 pub fn run_android<A: AppTrait>(app: AndroidApp) {
@@ -30,25 +29,25 @@ pub fn run_android<A: AppTrait>(app: AndroidApp) {
 }
 
 #[cfg(not(target_os = "android"))]
-pub fn run<A: AppTrait>() {
+pub fn run() {
     let event_loop = EventLoop::new().unwrap();
-    let mut winit_app: WinitApp<A> = WinitApp::new();
+    let mut winit_app: WinitApp = WinitApp::new();
     event_loop.run_app(&mut winit_app).unwrap();
 }
 
-struct WinitApp<A> {
-    app_state: Option<AppState<A>>,
+struct WinitApp {
+    app_state: Option<AppState>,
     g: FinalizeGuard,
 }
 
-impl<A: AppTrait> WinitApp<A> {
+impl WinitApp {
     fn new() -> Self {
         let g = sparkles::init_default();
         Self { app_state: None, g }
     }
 }
 
-impl<A: AppTrait> ApplicationHandler for WinitApp<A> {
+impl ApplicationHandler for WinitApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let g = range_event_start!("[WINIT] resumed");
         info!("\t\t*** APP RESUMED ***");
@@ -91,9 +90,7 @@ impl<A: AppTrait> ApplicationHandler for WinitApp<A> {
     }
 }
 
-pub struct AppState<A> {
-    user_app: A,
-
+pub struct AppState {
     app_finished: bool,
     prev_touch_event_time: Instant,
 
@@ -104,6 +101,8 @@ pub struct AppState<A> {
     last_sec: Instant,
 
     rendering_active: bool,
+
+    is_first_render: bool,
 }
 
 pub enum AppResult {
@@ -111,14 +110,19 @@ pub enum AppResult {
     Exit,
 }
 
-impl<A: AppTrait> AppState<A> {
-    pub fn new_winit(window: Window) -> AppState<A> {
-        let user_app = A::new();
+impl AppState {
+    pub fn new_winit(window: Window) -> AppState {
 
-        let vulkan_backend = VulkanBackend::new_for_window(&window, &user_app).unwrap();
+        let raw_window_handle = window.raw_window_handle().unwrap();
+        let raw_display_handle = window.raw_display_handle().unwrap();
+        let inner_size = window.inner_size();
+        let config = VulkanRenderConfig {
+            msaa_samples: None,
+        };
+        let vulkan_backend = VulkanBackend::new_for_window(raw_window_handle, raw_display_handle, (inner_size.width, inner_size.height), config).unwrap();
 
         Self {
-            user_app,
+            is_first_render: true,
 
             app_finished: false,
             prev_touch_event_time: Instant::now(),
@@ -146,26 +150,25 @@ impl<A: AppTrait> AppState<A> {
             WindowEvent::CloseRequested
             | WindowEvent::KeyboardInput {
                 event:
-                    winit::event::KeyEvent {
-                        logical_key: keyboard::Key::Named(NamedKey::GoBack | NamedKey::BrowserBack),
-                        state: winit::event::ElementState::Pressed,
-                        ..
-                    },
+                winit::event::KeyEvent {
+                    logical_key: keyboard::Key::Named(NamedKey::GoBack | NamedKey::BrowserBack),
+                    state: winit::event::ElementState::Pressed,
+                    ..
+                },
                 ..
             } => {
                 let g = range_event_start!("[APP] Close requested");
                 info!("Close requested...");
-                self.vulkan_backend.wait_idle();
                 self.app_finished = true;
             }
 
             WindowEvent::KeyboardInput {
                 event:
-                    winit::event::KeyEvent {
-                        logical_key: keyboard::Key::Named(NamedKey::F11),
-                        state: winit::event::ElementState::Pressed,
-                        ..
-                    },
+                winit::event::KeyEvent {
+                    logical_key: keyboard::Key::Named(NamedKey::F11),
+                    state: winit::event::ElementState::Pressed,
+                    ..
+                },
                 ..
             } => {
                 if self.window.fullscreen().is_none() {
@@ -198,7 +201,12 @@ impl<A: AppTrait> AppState<A> {
             WindowEvent::RedrawRequested => {
                 let g = range_event_start!("[APP] Redraw requested");
                 if !self.app_finished && self.rendering_active {
-                    self.vulkan_backend.render(&mut self.user_app)?;
+                    if self.is_first_render {
+                        self.vulkan_backend.render(DrawStateDiff::Create)?;
+                    }
+                    else {
+                        self.vulkan_backend.render(DrawStateDiff::Modify([0.0,0.0,0.0]))?;
+                    }
 
                     self.frame_cnt += 1;
                     if self.last_sec.elapsed().as_secs() >= 1 {
@@ -222,7 +230,7 @@ impl<A: AppTrait> AppState<A> {
                     if !self.rendering_active {
                         info!("Continue rendering...");
                     }
-                    self.vulkan_backend.recreate_resize(*size);
+                    self.vulkan_backend.recreate_resize((size.width, size.height));
                     self.rendering_active = true;
                 }
             }

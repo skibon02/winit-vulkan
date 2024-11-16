@@ -9,9 +9,9 @@ crate-type=["cdylib", "rlib"]
 [dependencies]
 log = "0.4.22"
 simple_logger = "5.0.0"
-winit-vulkan = { path = "../winit-vulkan" }
+framework = { path = "../framework" }
 
 
 [features]
 default = []
-android = ["winit-vulkan/android"]
+android = ["framework/android"]

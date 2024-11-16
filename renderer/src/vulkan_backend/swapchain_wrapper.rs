@@ -1,6 +1,6 @@
 use ash::vk;
 use ash::khr::swapchain;
-use ash::vk::{Extent2D, Format, Image, ImageAspectFlags, ImageTiling, ImageUsageFlags, ImageView, PhysicalDevice, SampleCountFlags, SwapchainKHR};
+use ash::vk::{Extent2D, Format, Image, ImageAspectFlags, ImageTiling, ImageUsageFlags, ImageView, PhysicalDevice, PresentModeKHR, SampleCountFlags, SwapchainKHR};
 use log::info;
 use sparkles_macro::range_event_start;
 use crate::vulkan_backend::wrappers::device::VkDeviceRef;
@@ -48,6 +48,7 @@ impl SwapchainWrapper {
                 surface_present_modes.first().unwrap()
             })
         });
+        // let present_mode = &PresentModeKHR::FIFO;
 
         // 1 additional image, so we can acquire 2 images at a time.
         let image_count = surface_capabilities.min_image_count + 1;

@@ -33,8 +33,6 @@ fn main() {
 
                 match status {
                     Ok(status) if status.success() => {
-                        // does not detect changes
-                        println!("cargo:rerun-if-changed={}", path.display());
                     }
                     _ => {
                         eprintln!("Error: glslc is required but not installed or shader compilation failed.");
@@ -44,4 +42,6 @@ fn main() {
             }
         }
     }
+
+    println!("cargo:rerun-if-changed=shaders");
 }
