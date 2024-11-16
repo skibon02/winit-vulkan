@@ -207,6 +207,7 @@ impl AppState {
                     else {
                         self.vulkan_backend.render(DrawStateDiff::Modify([0.0,0.0,0.0]))?;
                     }
+                    self.is_first_render = false;
 
                     self.frame_cnt += 1;
                     if self.last_sec.elapsed().as_secs() >= 1 {
