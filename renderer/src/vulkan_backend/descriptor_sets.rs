@@ -11,19 +11,33 @@ pub struct DescriptorSetPool {
     device: VkDeviceRef,
 
     descriptor_pool: DescriptorPool,
+
+
+    allocated_sets: u32,
+    capacity_sets: u32,
+
+    allocated_uniform_buffers: u32,
+    capacity_uniform_buffers: u32,
+
+    allocated_image_samplers: u32,
+    capacity_image_samplers: u32,
 }
 
 impl DescriptorSetPool {
     pub fn new(device: VkDeviceRef) -> Self {
+        let capacity_sets = 10;
+        let capacity_uniform_buffers = 10;
+        let capacity_image_samplers = 10;
+
         let pool_sizes = [
             DescriptorPoolSize::default()
-                .descriptor_count(1)
+                .descriptor_count(capacity_uniform_buffers)
                 .ty(DescriptorType::UNIFORM_BUFFER),
             DescriptorPoolSize::default()
-                .descriptor_count(1)
+                .descriptor_count(capacity_image_samplers)
                 .ty(DescriptorType::COMBINED_IMAGE_SAMPLER)];
         let desc_pool_info = vk::DescriptorPoolCreateInfo::default()
-            .max_sets(1)
+            .max_sets(capacity_sets)
             .pool_sizes(&pool_sizes);
 
         let descriptor_pool = unsafe {
@@ -35,8 +49,94 @@ impl DescriptorSetPool {
         DescriptorSetPool {
             device,
             descriptor_pool,
+
+            capacity_image_samplers,
+            capacity_sets,
+            capacity_uniform_buffers,
+            
+            allocated_image_samplers: 0,
+            allocated_sets: 0,
+            allocated_uniform_buffers: 0,
         }
     }
+
+
+    pub fn allocate_descriptor_sets(&mut self, descriptor_set_layout: DescriptorSetLayout, 
+        bindings: &Vec<DescriptorSetBindingResource>) -> DescriptorSet {
+
+        let set_layouts = [descriptor_set_layout];
+        let alloc_info = DescriptorSetAllocateInfo::default()
+            .descriptor_pool(self.descriptor_pool)
+            .set_layouts(&set_layouts);
+        let descriptor_set = unsafe { self.device.allocate_descriptor_sets(&alloc_info).unwrap()[0] };
+
+
+        // Update descriptor set
+        let buffer_infos: Vec<_> = bindings.iter().filter_map(|binding| {
+            if let DescriptorSetBindingResource::Buffer(buf) = binding {
+
+                Some([
+                    DescriptorBufferInfo::default()
+                        .offset(0)
+                        .buffer(buf.buffer)
+                        .range(WHOLE_SIZE)
+                ])
+            }
+            else {
+                None
+            }
+        }).collect();
+        let image_infos: Vec<_> = bindings.iter().filter_map(|binding| {
+            if let DescriptorSetBindingResource::Image(image, sampler) = binding {
+
+                Some([vk::DescriptorImageInfo::default()
+                        .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                        .image_view(*image)
+                        .sampler(*sampler)
+                ])
+            }
+            else {
+                None
+            }
+        }).collect();
+
+        let mut buffer_info_i = 0;
+        let mut image_info_i = 0;
+        let descriptor_writes: Vec<_> = bindings.iter().map(|binding| {
+            match binding {
+                DescriptorSetBindingResource::Buffer(buf) => {
+                    let res = WriteDescriptorSet::default()
+                        .descriptor_type(DescriptorType::UNIFORM_BUFFER)
+                        .descriptor_count(1)
+                        .dst_set(descriptor_set)
+                        .dst_binding(0)
+                        .dst_array_element(0)
+                        .buffer_info(&buffer_infos[buffer_info_i]);
+
+                    buffer_info_i += 1;
+                    res
+                }
+                DescriptorSetBindingResource::Image(image, sampler) => {
+
+                    let res = WriteDescriptorSet::default()
+                        .descriptor_type(DescriptorType::COMBINED_IMAGE_SAMPLER)
+                        .descriptor_count(1)
+                        .dst_set(descriptor_set)
+                        .dst_binding(1)
+                        .dst_array_element(0)
+                        .image_info(&image_infos[image_info_i]);
+
+                    image_info_i += 1;
+                    res
+                }
+            }
+        }).collect();
+
+        unsafe { self.device.update_descriptor_sets(&descriptor_writes, &[]) }
+
+        descriptor_set
+    }
+
 }
 
 impl Drop for DescriptorSetPool {
@@ -71,11 +171,17 @@ pub struct ObjectDescriptorSet {
 }
 
 impl ObjectDescriptorSet {
-    pub fn new(device: VkDeviceRef, resource_manager: &mut ResourceManager, descriptor_set_pool: &DescriptorSetPool) -> ObjectDescriptorSet {
+    // config is accepted here: 
+    // Binding list: e.g. 0,1,2
+    // where
+    //  0: image (resource_path)
+    //  1: buffer (size, initial_bytes)
+    //  2: image (resource_path)
+    pub fn new(device: VkDeviceRef, resource_manager: &mut ResourceManager, descriptor_set_pool: &mut DescriptorSetPool) -> ObjectDescriptorSet {
         let g = range_event_start!("[Vulkan] Create descriptor sets");
         
         // 1. Create layout
-        let bindings = [
+        let bindings_desc = [
             DescriptorSetLayoutBinding::default()
                 .binding(0)
                 .descriptor_count(1)
@@ -88,7 +194,7 @@ impl ObjectDescriptorSet {
                 .descriptor_type(DescriptorType::COMBINED_IMAGE_SAMPLER)
                 .stage_flags(ShaderStageFlags::FRAGMENT)];
         let descriptor_set_layout_info =
-            vk::DescriptorSetLayoutCreateInfo::default().bindings(&bindings);
+            vk::DescriptorSetLayoutCreateInfo::default().bindings(&bindings_desc);
 
         let descriptor_set_layout = unsafe {
             device
@@ -96,14 +202,7 @@ impl ObjectDescriptorSet {
                 .unwrap()
         };
 
-        // 2. Create Descriptor set
-                let set_layouts = [descriptor_set_layout];
-        let alloc_info = DescriptorSetAllocateInfo::default()
-            .descriptor_pool(descriptor_set_pool.descriptor_pool)
-            .set_layouts(&set_layouts);
-        let descriptor_set = unsafe { device.allocate_descriptor_sets(&alloc_info).unwrap()[0] };
-
-        // Create resources
+        // 2. Create images and buffers
         let buffer = resource_manager.create_buffer(3 * 4, BufferUsageFlags::UNIFORM_BUFFER);
         resource_manager.fill_buffer(buffer, &[0.0f32, 0.0, 0.0]);
         let data = get_resource("resources/damndashie.png".into()).unwrap();
@@ -117,40 +216,15 @@ impl ObjectDescriptorSet {
         let imageview_info = imageview_info_for_image(image.image, image.info, vk::ImageAspectFlags::COLOR);
         let imageview = unsafe { device.create_image_view(&imageview_info, None) }.unwrap();
         let sampler = resource_manager.create_sampler();
-
-        // Update descriptor set
-        let buffer_info = [DescriptorBufferInfo::default()
-            .offset(0)
-            .buffer(buffer.buffer)
-            .range(WHOLE_SIZE)];
-        let image_info = [vk::DescriptorImageInfo::default()
-            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-            .image_view(imageview)
-            .sampler(sampler)];
-
-        let descriptor_writes = [
-            WriteDescriptorSet::default()
-                .descriptor_type(DescriptorType::UNIFORM_BUFFER)
-                .descriptor_count(1)
-                .dst_set(descriptor_set)
-                .dst_binding(0)
-                .dst_array_element(0)
-                .buffer_info(&buffer_info),
-
-            WriteDescriptorSet::default()
-                .descriptor_type(DescriptorType::COMBINED_IMAGE_SAMPLER)
-                .descriptor_count(1)
-                .dst_set(descriptor_set)
-                .dst_binding(1)
-                .dst_array_element(0)
-                .image_info(&image_info),
-        ];
-        unsafe { device.update_descriptor_sets(&descriptor_writes, &[]) }
-
+        
         let bindings = vec![
             DescriptorSetBindingResource::Buffer(buffer),
             DescriptorSetBindingResource::Image(imageview, sampler)
         ];
+
+        // 3. Ask pool to allocate descriptor set and perform writes
+        let descriptor_set = descriptor_set_pool.allocate_descriptor_sets(descriptor_set_layout, &bindings);
+        
         Self {
             device,
             descriptor_set_layout,

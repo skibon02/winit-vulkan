@@ -45,7 +45,7 @@ impl ObjectResourcePool {
 
                 let total_floats_per_attrib = vert_desc.get_floats_for_binding(0);
 
-                let descriptor_sets = ObjectDescriptorSet::new(self.device.clone(), resource_manager, &self.descriptor_set_pool);
+                let descriptor_sets = ObjectDescriptorSet::new(self.device.clone(), resource_manager, &mut self.descriptor_set_pool);
                 let pipeline = VulkanPipeline::new(
                     self.device.clone(),
                     render_pass,
