@@ -4,7 +4,7 @@ use ash::vk::{BufferUsageFlags, DeviceSize, PipelineBindPoint, PrimitiveTopology
 use crate::object_handles::ObjectId;
 use crate::state::DrawStateDiff;
 use crate::use_shader;
-use crate::vulkan_backend::descriptor_sets::DescriptorSets;
+use crate::vulkan_backend::descriptor_sets::{DescriptorSetPool, ObjectDescriptorSet};
 use crate::vulkan_backend::pipeline::{PipelineDesc, VertexInputDesc, VulkanPipeline};
 use crate::vulkan_backend::render_pass::RenderPassWrapper;
 use crate::vulkan_backend::resource_manager::{BufferResource, ResourceManager};
@@ -13,20 +13,23 @@ use crate::vulkan_backend::wrappers::device::VkDeviceRef;
 pub struct ObjectDrawState {
     vertex_buffer: BufferResource,
     vertex_count: usize,
-    descriptor_sets: DescriptorSets,
+    descriptor_sets: ObjectDescriptorSet,
     pipeline: VulkanPipeline,
 }
 
 pub struct ObjectResourcePool {
     device: VkDeviceRef,
     objects: BTreeMap<ObjectId, ObjectDrawState>,
+    descriptor_set_pool: DescriptorSetPool
 }
 
 impl ObjectResourcePool {
     pub fn new(device: VkDeviceRef) -> Self {
+        let descriptor_set_pool = DescriptorSetPool::new(device.clone());
         ObjectResourcePool {
             objects: BTreeMap::new(),
-            device
+            device,
+            descriptor_set_pool
         }
     }
 
@@ -42,7 +45,7 @@ impl ObjectResourcePool {
 
                 let total_floats_per_attrib = vert_desc.get_floats_for_binding(0);
 
-                let descriptor_sets = DescriptorSets::new(self.device.clone(), resource_manager);
+                let descriptor_sets = ObjectDescriptorSet::new(self.device.clone(), resource_manager, &self.descriptor_set_pool);
                 let pipeline = VulkanPipeline::new(
                     self.device.clone(),
                     render_pass,

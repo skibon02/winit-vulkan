@@ -7,21 +7,71 @@ use crate::util::get_resource;
 use crate::util::image::read_image_from_bytes;
 use crate::vulkan_backend::wrappers::image::imageview_info_for_image;
 
-pub struct DescriptorSets {
+pub struct DescriptorSetPool {
+    device: VkDeviceRef,
+
+    descriptor_pool: DescriptorPool,
+}
+
+impl DescriptorSetPool {
+    pub fn new(device: VkDeviceRef) -> Self {
+        let pool_sizes = [
+            DescriptorPoolSize::default()
+                .descriptor_count(1)
+                .ty(DescriptorType::UNIFORM_BUFFER),
+            DescriptorPoolSize::default()
+                .descriptor_count(1)
+                .ty(DescriptorType::COMBINED_IMAGE_SAMPLER)];
+        let desc_pool_info = vk::DescriptorPoolCreateInfo::default()
+            .max_sets(1)
+            .pool_sizes(&pool_sizes);
+
+        let descriptor_pool = unsafe {
+            device
+                .create_descriptor_pool(&desc_pool_info, None)
+                .unwrap()
+        };
+
+        DescriptorSetPool {
+            device,
+            descriptor_pool,
+        }
+    }
+}
+
+impl Drop for DescriptorSetPool {
+    fn drop(&mut self) {
+        unsafe {
+            self.device
+                .destroy_descriptor_pool(self.descriptor_pool, None);
+        }
+    }
+}
+
+pub enum DescriptorSetBindingResource {
+    Buffer(BufferResource),
+    Image(vk::ImageView, vk::Sampler),
+}
+
+pub enum DescriptorSetBindingResourceType {
+    Buffer,
+    Image,
+}
+
+pub struct ObjectDescriptorSetDesc {
+    bindings: Vec<DescriptorSetBindingResourceType>,
+}
+pub struct ObjectDescriptorSet {
     device: VkDeviceRef,
 
     descriptor_set_layout: DescriptorSetLayout,
-    descriptor_pool: DescriptorPool,
-
     descriptor_set: DescriptorSet,
 
-    buffer: BufferResource,
-    imageview: vk::ImageView,
-    sampler: vk::Sampler,
+    bindings: Vec<DescriptorSetBindingResource>,
 }
 
-impl DescriptorSets {
-    pub fn new(device: VkDeviceRef, resource_manager: &mut ResourceManager) -> DescriptorSets {
+impl ObjectDescriptorSet {
+    pub fn new(device: VkDeviceRef, resource_manager: &mut ResourceManager, descriptor_set_pool: &DescriptorSetPool) -> ObjectDescriptorSet {
         let g = range_event_start!("[Vulkan] Create descriptor sets");
         
         // 1. Create layout
@@ -47,26 +97,9 @@ impl DescriptorSets {
         };
 
         // 2. Create Descriptor set
-        let pool_sizes = [
-            DescriptorPoolSize::default()
-                .descriptor_count(1)
-                .ty(DescriptorType::UNIFORM_BUFFER),
-            DescriptorPoolSize::default()
-                .descriptor_count(1)
-                .ty(DescriptorType::COMBINED_IMAGE_SAMPLER)];
-        let desc_pool_info = vk::DescriptorPoolCreateInfo::default()
-            .max_sets(1)
-            .pool_sizes(&pool_sizes);
-
-        let descriptor_pool = unsafe {
-            device
-                .create_descriptor_pool(&desc_pool_info, None)
-                .unwrap()
-        };
-
-        let set_layouts = [descriptor_set_layout];
+                let set_layouts = [descriptor_set_layout];
         let alloc_info = DescriptorSetAllocateInfo::default()
-            .descriptor_pool(descriptor_pool)
+            .descriptor_pool(descriptor_set_pool.descriptor_pool)
             .set_layouts(&set_layouts);
         let descriptor_set = unsafe { device.allocate_descriptor_sets(&alloc_info).unwrap()[0] };
 
@@ -114,15 +147,16 @@ impl DescriptorSets {
         ];
         unsafe { device.update_descriptor_sets(&descriptor_writes, &[]) }
 
+        let bindings = vec![
+            DescriptorSetBindingResource::Buffer(buffer),
+            DescriptorSetBindingResource::Image(imageview, sampler)
+        ];
         Self {
             device,
             descriptor_set_layout,
             descriptor_set,
-            descriptor_pool,
 
-            buffer,
-            imageview,
-            sampler
+            bindings,
         }
     }
 
@@ -130,7 +164,9 @@ impl DescriptorSets {
         self.descriptor_set_layout
     }
     pub fn update(&mut self, resource_manager: &mut ResourceManager, new_color: [f32; 3]) {
-        resource_manager.fill_buffer(self.buffer, &new_color);
+        if let DescriptorSetBindingResource::Buffer(buffer) = &mut self.bindings[0] {
+            resource_manager.fill_buffer(*buffer, &new_color);
+        }
     }
 
     pub fn bind_sets(&self, command_buffer: CommandBuffer, pipeline_layout: PipelineLayout) {
@@ -148,15 +184,23 @@ impl DescriptorSets {
     }
 }
 
-impl Drop for DescriptorSets {
+impl Drop for ObjectDescriptorSet {
     fn drop(&mut self) {
         unsafe {
             self.device
-                .destroy_descriptor_pool(self.descriptor_pool, None);
-            self.device
                 .destroy_descriptor_set_layout(self.descriptor_set_layout, None);
 
-            self.device.destroy_image_view(self.imageview, None);
+            for binding in self.bindings.drain(..) {
+                match binding {
+                    DescriptorSetBindingResource::Buffer(buffer) => {
+                        // buffer is dropped by resource manager
+                    }
+                    DescriptorSetBindingResource::Image(imageview, sampler) => {
+                        self.device.destroy_image_view(imageview, None);
+                        // sampler is dropped by resource manager
+                    }
+                }
+            }
         }
     }
 }

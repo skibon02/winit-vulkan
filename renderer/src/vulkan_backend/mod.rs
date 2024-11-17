@@ -18,7 +18,7 @@ use ash::vk::{
 };
 
 use crate::use_shader;
-use crate::vulkan_backend::descriptor_sets::DescriptorSets;
+use crate::vulkan_backend::descriptor_sets::ObjectDescriptorSet;
 use crate::vulkan_backend::pipeline::{PipelineDesc, VertexInputDesc, VulkanPipeline};
 use crate::vulkan_backend::render_pass::RenderPassResources;
 use crate::vulkan_backend::resource_manager::{BufferResource, ResourceManager};
