@@ -175,9 +175,11 @@ impl AppState {
                     // find max by width and refresh rate
                     let mode = monitor
                         .video_modes()
-                        .max_by_key(|m| m.refresh_rate_millihertz() * m.size().width)
+                        .map(|m| (m.size().width, m.refresh_rate_millihertz(), m))
+                        .max_by_key(|(w, hz, m)| w * 5000 + * hz)
+                        .map(|(_, _, m)| m)
                         .unwrap();
-                    info!("Entering fullscreen mode {:?}", mode);
+                    info!("Entering fullscreen mode {:?}, refresh rate: {}", mode.size(), mode.refresh_rate_millihertz() as f32 / 1000.0);
                     self.window
                         .set_fullscreen(Some(Fullscreen::Exclusive(mode)));
                 } else {
