@@ -1,7 +1,11 @@
+#[cfg(target_os = "android")]
+pub mod android;
+
+pub mod winit;
 
 #[cfg(target_os = "android")]
 #[no_mangle]
-fn android_main(app: winit_vulkan::AndroidApp) {
-    use framework::{run_android};
+fn android_main(app: crate::winit::AndroidApp) {
+    use crate::winit::run_android;
     run_android(app);
 }

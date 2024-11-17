@@ -1,6 +1,3 @@
-#[cfg(target_os = "android")]
-mod android;
-
 use std::fs;
 use log::{error, info, warn};
 use sparkles_macro::{instant_event, range_event_start};
@@ -22,9 +19,10 @@ use renderer::state::DrawStateDiff;
 use renderer::vulkan_backend::config::VulkanRenderConfig;
 
 #[cfg(target_os = "android")]
-pub fn run_android<A: AppTrait>(app: AndroidApp) {
-    let event_loop = android::android_main(app);
-    let mut winit_app: WinitApp<A> = WinitApp::new();
+pub fn run_android(app: AndroidApp) {
+    use crate::android::android_main;
+    let event_loop = android_main(app);
+    let mut winit_app: WinitApp = WinitApp::new();
     event_loop.run_app(&mut winit_app).unwrap();
 }
 

@@ -1,13 +1,16 @@
 use std::cell::RefCell;
 use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use jni::{JNIEnv, JavaVM};
 use jni::objects::GlobalRef;
+use lazy_static::lazy_static;
 use log::info;
 use sparkles_macro::range_event_start;
 use winit::event_loop::{EventLoop, EventLoopBuilder};
 use winit::platform::android::activity::*;
-pub(crate) fn android_main(app: AndroidApp) -> EventLoop<()> {
+use renderer::set_android_context;
+
+pub fn android_main(app: AndroidApp) -> EventLoop<()> {
     use jni::objects::{JObject, JObjectArray, JValue};
     use jni::JavaVM;
     use winit::platform::android::EventLoopBuilderExtAndroid;
@@ -141,9 +144,12 @@ pub(crate) fn android_main(app: AndroidApp) -> EventLoop<()> {
 
     *VM.lock().unwrap() = Some(vm);
     *ACTIVITY.lock().unwrap() = Some(activity);
+    set_android_context(ACTIVITY.clone(), VM.clone());
     let event_loop = EventLoopBuilder::default().with_android_app(app).build().unwrap();
     event_loop
 }
 
-pub static VM: Mutex<Option<JavaVM>> = Mutex::new(None);
-pub static ACTIVITY: Mutex<Option<GlobalRef>> = Mutex::new(None);
+lazy_static!{
+    pub static ref VM: Arc<Mutex<Option<JavaVM>>> = Arc::new(Mutex::new(None));
+    pub static ref ACTIVITY: Arc<Mutex<Option<GlobalRef>>> = Arc::new(Mutex::new(None));
+}

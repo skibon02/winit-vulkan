@@ -10,16 +10,16 @@ pub fn get_resource(path: PathBuf) -> anyhow::Result<Vec<u8>> {
 
 #[cfg(target_os = "android")]
 pub fn get_resource(path: PathBuf) -> anyhow::Result<Vec<u8>> {
-    use crate::android::{ACTIVITY, VM};
     use ndk_sys::AAssetManager_fromJava;
     use std::ptr::NonNull;
     use std::ffi::CString;
+    use crate::{ACTIVITY, VM};
 
-    let mut vm_lock = VM.lock().unwrap();
+    let mut vm_lock = VM.get().unwrap().lock().unwrap();
     let vm = vm_lock.as_mut().unwrap();
     let mut env = vm.get_env().unwrap();
 
-    let mut activity_lock = ACTIVITY.lock().unwrap();
+    let mut activity_lock = ACTIVITY.get().unwrap().lock().unwrap();
     let activity = activity_lock.as_mut().unwrap();
 
     let asset_manager = env
