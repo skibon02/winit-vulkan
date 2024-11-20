@@ -3,15 +3,15 @@ use crate::state::uniform_state::UniformDesc;
 
 #[derive(Uniform, Copy, Clone)]
 pub struct MapStats {
-    r: f32,
-    ar: f32,
+    pub r: f32,
+    pub ar: f32,
 }
 
 impl UniformDesc for MapStats { }
 
 #[derive(Uniform, Copy, Clone)]
 pub struct Time {
-    time: u32
+    pub time: u32
 }
 
 impl UniformDesc for Time { }

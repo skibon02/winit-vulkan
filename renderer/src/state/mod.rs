@@ -1,5 +1,6 @@
 pub mod single_object;
 pub mod uniform_state;
+mod object_group;
 
 pub enum DrawStateDiff {
     Create,

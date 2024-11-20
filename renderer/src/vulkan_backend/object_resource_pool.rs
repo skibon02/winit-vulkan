@@ -13,6 +13,7 @@ use crate::vulkan_backend::wrappers::device::VkDeviceRef;
 pub struct ObjectDrawState {
     vertex_buffer: BufferResource,
     vertex_count: usize,
+    instance_count: usize,
     descriptor_sets: ObjectDescriptorSet,
     pipeline: VulkanPipeline,
 }
@@ -68,6 +69,7 @@ impl ObjectResourcePool {
                 object_entry.or_insert(ObjectDrawState {
                     vertex_buffer,
                     vertex_count,
+                    instance_count: 1,
                     descriptor_sets,
                     pipeline,
                 });
@@ -92,7 +94,8 @@ impl ObjectResourcePool {
             self.device.cmd_bind_vertex_buffers(command_buffer, 0, &[object.vertex_buffer.buffer], &[0]);
             object.descriptor_sets.bind_sets(command_buffer, object.pipeline.get_pipeline_layout());
             //draw
-            self.device.cmd_draw(command_buffer, object.vertex_count as u32, 1, 0, 0);
+            self.device.cmd_draw(command_buffer, object.vertex_count as u32,
+                                 object.instance_count as u32, 0, 0);
         }
     }
 }
