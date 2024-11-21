@@ -1,12 +1,20 @@
+use smallvec::SmallVec;
+use crate::object_handles::{ObjectId, UniformResourceId};
+use crate::pipelines::PipelineDescWrapper;
+
 pub mod single_object;
 pub mod uniform_state;
-mod object_group;
+pub mod object_group;
 
-pub enum DrawStateDiff {
-    Create,
-    Modify([f32; 3])
+
+#[derive(Debug)]
+pub struct ObjectStateWrapper<'a> {
+    pub uniform_bindings: SmallVec<[(u32, UniformResourceId); 5]>,
+    pub new_attributes: &'a [u8]
 }
 
 pub trait DrawStateCollect {
-    fn collect_draw_state(&mut self) -> impl Iterator<Item=&mut DrawStateDiff>;
+    fn collect_uniform_states(&mut self) -> impl Iterator<Item=(UniformResourceId, Vec<u8>)>;
+    fn collect_object_states(&mut self) -> impl Iterator<Item=(ObjectId, ObjectStateWrapper, fn() -> PipelineDescWrapper)>;
+    fn clear_state(&mut self);
 }

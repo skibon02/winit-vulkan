@@ -177,30 +177,8 @@ impl ObjectDescriptorSet {
     //  0: image (resource_path)
     //  1: buffer (size, initial_bytes)
     //  2: image (resource_path)
-    pub fn new(device: VkDeviceRef, resource_manager: &mut ResourceManager, descriptor_set_pool: &mut DescriptorSetPool) -> ObjectDescriptorSet {
+    pub fn new(device: VkDeviceRef, resource_manager: &mut ResourceManager, descriptor_set_pool: &mut DescriptorSetPool, descriptor_set_layout: DescriptorSetLayout) -> ObjectDescriptorSet {
         let g = range_event_start!("[Vulkan] Create descriptor sets");
-        
-        // 1. Create layout
-        let bindings_desc = [
-            DescriptorSetLayoutBinding::default()
-                .binding(0)
-                .descriptor_count(1)
-                .descriptor_type(DescriptorType::UNIFORM_BUFFER)
-                .stage_flags(ShaderStageFlags::FRAGMENT),
-
-            DescriptorSetLayoutBinding::default()
-                .binding(1)
-                .descriptor_count(1)
-                .descriptor_type(DescriptorType::COMBINED_IMAGE_SAMPLER)
-                .stage_flags(ShaderStageFlags::FRAGMENT)];
-        let descriptor_set_layout_info =
-            vk::DescriptorSetLayoutCreateInfo::default().bindings(&bindings_desc);
-
-        let descriptor_set_layout = unsafe {
-            device
-                .create_descriptor_set_layout(&descriptor_set_layout_info, None)
-                .unwrap()
-        };
 
         // 2. Create images and buffers
         let buffer = resource_manager.create_buffer(3 * 4, BufferUsageFlags::UNIFORM_BUFFER);

@@ -13,9 +13,10 @@ use winit::{event::WindowEvent, event_loop::EventLoop, keyboard};
 #[cfg(target_os = "android")]
 pub use winit::platform::android::activity::AndroidApp;
 use winit::raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
+use renderer::pipelines::circle::CircleAttributes;
+use renderer::state::object_group::ObjectGroup;
 use renderer::vulkan_backend::VulkanBackend;
 
-use renderer::state::DrawStateDiff;
 use renderer::vulkan_backend::config::VulkanRenderConfig;
 
 #[cfg(target_os = "android")]
@@ -100,7 +101,7 @@ pub struct AppState {
 
     rendering_active: bool,
 
-    is_first_render: bool,
+    object_group: ObjectGroup,
 }
 
 pub enum AppResult {
@@ -119,9 +120,9 @@ impl AppState {
         };
         let vulkan_backend = VulkanBackend::new_for_window(raw_window_handle, raw_display_handle, (inner_size.width, inner_size.height), config).unwrap();
 
+        let object_group = ObjectGroup::new();
         Self {
-            is_first_render: true,
-
+            object_group,
             app_finished: false,
             prev_touch_event_time: Instant::now(),
 
@@ -196,18 +197,22 @@ impl AppState {
                 let elapsed = now.duration_since(prev);
                 self.prev_touch_event_time = now;
                 info!("Elapsed: {:?}", elapsed);
+
+
+                self.object_group.circle.update(CircleAttributes {
+                    pos: [
+                        t.location.x as f32 / self.window.inner_size().width as f32,
+                        t.location.y as f32 / self.window.inner_size().height as f32,
+                    ],
+                    trig_time: 0,
+                    color: [1.0, 0.0, 0.0, 1.0],
+                });
             }
 
             WindowEvent::RedrawRequested => {
                 let g = range_event_start!("[APP] Redraw requested");
                 if !self.app_finished && self.rendering_active {
-                    if self.is_first_render {
-                        self.vulkan_backend.render(DrawStateDiff::Create)?;
-                    }
-                    else {
-                        self.vulkan_backend.render(DrawStateDiff::Modify([0.0,0.0,0.0]))?;
-                    }
-                    self.is_first_render = false;
+                    self.vulkan_backend.render(&mut self.object_group)?;
 
                     self.frame_cnt += 1;
                     if self.last_sec.elapsed().as_secs() >= 1 {

@@ -1769,6 +1769,7 @@ dependencies = [
  "ndk",
  "ndk-sys",
  "raw-window-handle",
+ "smallvec",
  "sparkles",
  "sparkles-macro",
  "thiserror 2.0.1",

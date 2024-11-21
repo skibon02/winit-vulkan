@@ -1,12 +1,6 @@
 use std::ffi::CStr;
-use ash::vk::{ColorComponentFlags, CompareOp, CullModeFlags, DescriptorSetLayout, DynamicState,
-              Format, GraphicsPipelineCreateInfo, Pipeline, PipelineCache, PipelineCacheCreateInfo,
-              PipelineColorBlendAttachmentState, PipelineColorBlendStateCreateInfo, PipelineDepthStencilStateCreateInfo,
-              PipelineDynamicStateCreateInfo, PipelineInputAssemblyStateCreateInfo, PipelineLayout,
-              PipelineLayoutCreateInfo, PipelineMultisampleStateCreateInfo, PipelineRasterizationStateCreateInfo,
-              PipelineShaderStageCreateInfo, PipelineVertexInputStateCreateInfo, PipelineViewportStateCreateInfo,
-              PrimitiveTopology, SampleCountFlags, ShaderModuleCreateInfo, ShaderStageFlags,
-              VertexInputAttributeDescription, VertexInputBindingDescription};
+use ash::vk;
+use ash::vk::{ColorComponentFlags, CompareOp, CullModeFlags, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorType, DynamicState, Format, GraphicsPipelineCreateInfo, Pipeline, PipelineCache, PipelineCacheCreateInfo, PipelineColorBlendAttachmentState, PipelineColorBlendStateCreateInfo, PipelineDepthStencilStateCreateInfo, PipelineDynamicStateCreateInfo, PipelineInputAssemblyStateCreateInfo, PipelineLayout, PipelineLayoutCreateInfo, PipelineMultisampleStateCreateInfo, PipelineRasterizationStateCreateInfo, PipelineShaderStageCreateInfo, PipelineVertexInputStateCreateInfo, PipelineViewportStateCreateInfo, PrimitiveTopology, SampleCountFlags, ShaderModuleCreateInfo, ShaderStageFlags, VertexInputAttributeDescription, VertexInputBindingDescription};
 use sparkles_macro::range_event_start;
 use crate::vulkan_backend::render_pass::RenderPassWrapper;
 use crate::vulkan_backend::wrappers::device::VkDeviceRef;
@@ -16,6 +10,8 @@ pub struct VulkanPipeline {
     pipeline: Pipeline,
     pipeline_layout: PipelineLayout,
     pipeline_cache: PipelineCache,
+    descriptor_set_layout: DescriptorSetLayout,
+    total_floats_per_attrib: usize,
 }
 
 #[macro_export]
@@ -38,7 +34,7 @@ pub struct VertexInputDesc {
     attrib_desc: Vec<VertexInputAttributeDescription>,
     binding_desc: Vec<VertexInputBindingDescription>,
     stride_per_binding: Vec<usize>,
-    last_location: usize
+    last_location: usize,
 }
 
 impl VertexInputDesc {
@@ -48,7 +44,7 @@ impl VertexInputDesc {
             attrib_desc: Vec::new(),
             binding_desc: Vec::new(),
             stride_per_binding: vec![0],
-            last_location: 0
+            last_location: 0,
         }
     }
 
@@ -106,10 +102,32 @@ impl<'a> PipelineDesc<'a> {
 }
 
 impl VulkanPipeline {
-    pub fn new(device: VkDeviceRef, render_pass: &RenderPassWrapper, desc: PipelineDesc, mut vert_desc: VertexInputDesc,
-        descriptor_set_layout: DescriptorSetLayout) -> VulkanPipeline {
+    pub fn new(device: VkDeviceRef, render_pass: &RenderPassWrapper,
+               desc: PipelineDesc, mut vert_desc: VertexInputDesc) -> VulkanPipeline {
         let g = range_event_start!("Create pipeline");
-        // no descriptor sets
+
+        // 1. Create layout
+        let bindings_desc = [
+            DescriptorSetLayoutBinding::default()
+                .binding(0)
+                .descriptor_count(1)
+                .descriptor_type(DescriptorType::UNIFORM_BUFFER)
+                .stage_flags(ShaderStageFlags::FRAGMENT),
+
+            DescriptorSetLayoutBinding::default()
+                .binding(1)
+                .descriptor_count(1)
+                .descriptor_type(DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .stage_flags(ShaderStageFlags::FRAGMENT)];
+        let descriptor_set_layout_info =
+            vk::DescriptorSetLayoutCreateInfo::default().bindings(&bindings_desc);
+
+        let descriptor_set_layout = unsafe {
+            device
+                .create_descriptor_set_layout(&descriptor_set_layout_info, None)
+                .unwrap()
+        };
+
         let set_layoutst = [descriptor_set_layout];
         let pipeline_layout_info = PipelineLayoutCreateInfo::default()
             .set_layouts(&set_layoutst);
@@ -196,7 +214,9 @@ impl VulkanPipeline {
             
             pipeline,
             pipeline_layout,
-            pipeline_cache
+            pipeline_cache,
+            descriptor_set_layout,
+            total_floats_per_attrib: vert_desc.get_floats_for_binding(0),
         }
     }
 
@@ -206,6 +226,12 @@ impl VulkanPipeline {
 
     pub fn get_pipeline_layout(&self) -> PipelineLayout {
         self.pipeline_layout
+    }
+    pub fn get_descriptor_set_layout(&self) -> DescriptorSetLayout {
+        self.descriptor_set_layout
+    }
+    pub fn get_total_floats_per_attrib(&self,) -> usize {
+        self.total_floats_per_attrib
     }
 }
 
