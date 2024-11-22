@@ -20,7 +20,7 @@ impl ObjectGroup {
         });
 
         let map_stats = UniformState::new(MapStats {
-            r: 300.0,
+            r: 0.5,
             ar: 500.0
         });
 
@@ -39,13 +39,13 @@ impl ObjectGroup {
 }
 
 impl DrawStateCollect for ObjectGroup {
-    fn collect_uniform_states(&mut self) -> impl Iterator<Item=(UniformResourceId, Vec<u8>)> {
+    fn collect_uniform_updates(&mut self) -> impl Iterator<Item=(UniformResourceId, Vec<u8>)> {
         self.time.take_state().map(|s| (self.time.id().id, s.as_raw().to_vec())).into_iter().chain(
             self.map_stats.take_state().map(|s| (self.map_stats.id().id, s.as_raw().to_vec())).into_iter()
         )
     }
 
-    fn collect_object_states(&mut self) -> impl Iterator<Item=(ObjectId, ObjectStateWrapper, fn() -> PipelineDescWrapper)> {
+    fn collect_object_updates(&mut self) -> impl Iterator<Item=(ObjectId, ObjectStateWrapper, fn() -> PipelineDescWrapper)> {
         let id = self.circle.id();
         let pipeline_info = self.circle.get_pipeline_info();
         self.circle.take_state().map(|s|

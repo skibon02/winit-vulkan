@@ -19,7 +19,7 @@ use ash::vk::{
 
 use crate::use_shader;
 use crate::vulkan_backend::descriptor_sets::ObjectDescriptorSet;
-use crate::vulkan_backend::pipeline::{PipelineDesc, VertexInputDesc, VulkanPipeline};
+use crate::vulkan_backend::pipeline::{VertexInputDesc, VulkanPipeline};
 use crate::vulkan_backend::render_pass::RenderPassResources;
 use crate::vulkan_backend::resource_manager::{BufferResource, ResourceManager};
 use crate::vulkan_backend::wrappers::capabilities_checker::CapabilitiesChecker;
@@ -345,8 +345,7 @@ impl VulkanBackend {
         let g = range_event_start!("[Vulkan] Update draw state");
 
         // let uniform_state = draw_state_diff.collect_uniform_states();
-        let objects_state = draw_state_diff.collect_object_states();
-        self.object_resource_pool.update_objects(&mut self.resource_manager, objects_state, &self.render_pass);
+        self.object_resource_pool.update_objects(&mut self.resource_manager, draw_state_diff, &self.render_pass);
         draw_state_diff.clear_state();
         drop(g);
 

@@ -8,8 +8,7 @@ use winit::event_loop::{ActiveEventLoop, EventLoopBuilder};
 use winit::keyboard::NamedKey;
 use winit::window::{Fullscreen, Window, WindowAttributes, WindowId};
 use winit::{event::WindowEvent, event_loop::EventLoop, keyboard};
-
-
+use winit::event::{ElementState, MouseButton};
 #[cfg(target_os = "android")]
 pub use winit::platform::android::activity::AndroidApp;
 use winit::raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
@@ -204,6 +203,19 @@ impl AppState {
                         t.location.x as f32 / self.window.inner_size().width as f32,
                         t.location.y as f32 / self.window.inner_size().height as f32,
                     ],
+                    trig_time: 0,
+                    color: [1.0, 0.0, 0.0, 1.0],
+                });
+            }
+
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                button: MouseButton::Left,
+                ..
+            } => {
+                info!("Mouse left button pressed!");
+                self.object_group.circle.update(CircleAttributes {
+                    pos: [0.0, 0.0],
                     trig_time: 0,
                     color: [1.0, 0.0, 0.0, 1.0],
                 });

@@ -1,7 +1,9 @@
 use std::ffi::CStr;
 use ash::vk;
 use ash::vk::{ColorComponentFlags, CompareOp, CullModeFlags, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorType, DynamicState, Format, GraphicsPipelineCreateInfo, Pipeline, PipelineCache, PipelineCacheCreateInfo, PipelineColorBlendAttachmentState, PipelineColorBlendStateCreateInfo, PipelineDepthStencilStateCreateInfo, PipelineDynamicStateCreateInfo, PipelineInputAssemblyStateCreateInfo, PipelineLayout, PipelineLayoutCreateInfo, PipelineMultisampleStateCreateInfo, PipelineRasterizationStateCreateInfo, PipelineShaderStageCreateInfo, PipelineVertexInputStateCreateInfo, PipelineViewportStateCreateInfo, PrimitiveTopology, SampleCountFlags, ShaderModuleCreateInfo, ShaderStageFlags, VertexInputAttributeDescription, VertexInputBindingDescription};
+use smallvec::SmallVec;
 use sparkles_macro::range_event_start;
+use crate::pipelines::PipelineDescWrapper;
 use crate::vulkan_backend::render_pass::RenderPassWrapper;
 use crate::vulkan_backend::wrappers::device::VkDeviceRef;
 
@@ -11,7 +13,6 @@ pub struct VulkanPipeline {
     pipeline_layout: PipelineLayout,
     pipeline_cache: PipelineCache,
     descriptor_set_layout: DescriptorSetLayout,
-    total_floats_per_attrib: usize,
 }
 
 #[macro_export]
@@ -24,28 +25,36 @@ macro_rules! use_shader {
     };
 }
 
-pub struct PipelineDesc<'a> {
-    vertex_shader_code: &'a [u8],
-    fragment_shader_code: &'a [u8],
-}
-
+#[derive(Debug, Clone)]
 pub struct VertexInputDesc {
-    topology: PrimitiveTopology,
-    attrib_desc: Vec<VertexInputAttributeDescription>,
-    binding_desc: Vec<VertexInputBindingDescription>,
+    attrib_desc: SmallVec<[VertexInputAttributeDescription; 5]>,
+    binding_desc: SmallVec<[VertexInputBindingDescription; 1]>,
     stride_per_binding: Vec<usize>,
     last_location: usize,
 }
 
+/// Use single binding for now
 impl VertexInputDesc {
-    pub fn new(topology: PrimitiveTopology) -> Self {
+    pub fn new() -> Self {
         Self {
-            topology,
-            attrib_desc: Vec::new(),
-            binding_desc: Vec::new(),
+            attrib_desc: SmallVec::new(),
+            binding_desc: SmallVec::new(),
             stride_per_binding: vec![0],
             last_location: 0,
         }
+    }
+
+    pub fn attrib_4_floats(mut self) -> Self {
+        let cur_binding = self.stride_per_binding.len() - 1;
+        self.attrib_desc.push(VertexInputAttributeDescription::default()
+            .binding(cur_binding as u32)
+            .format(Format::R32G32B32A32_SFLOAT)
+            .offset(self.stride_per_binding[cur_binding] as u32)
+            .location(self.last_location as u32));
+
+        self.last_location += 1;
+        self.stride_per_binding[cur_binding] += 4 * 4;
+        self
     }
 
     pub fn attrib_3_floats(mut self) -> Self {
@@ -72,53 +81,55 @@ impl VertexInputDesc {
         self.stride_per_binding[cur_binding] += 4 * 2;
         self
     }
-    pub fn get_binding_desc(&self) -> Vec<VertexInputBindingDescription> {
+
+    pub fn attrib_u32(mut self) -> Self {
+        let cur_binding = self.stride_per_binding.len() - 1;
+        self.attrib_desc.push(VertexInputAttributeDescription::default()
+            .binding(cur_binding as u32)
+            .format(Format::R32_UINT)
+            .offset(self.stride_per_binding[cur_binding] as u32)
+            .location(self.last_location as u32));
+
+        self.last_location += 1;
+        self.stride_per_binding[cur_binding] += 4;
+        self
+    }
+    pub fn get_attrib_binding_desc(&self) -> SmallVec<[VertexInputBindingDescription; 1]> {
         self.stride_per_binding.iter().enumerate()
             .map(|(i, stride)| VertexInputBindingDescription::default()
                 .binding(i as u32)
+                .input_rate(vk::VertexInputRate::INSTANCE)
                 .stride(*stride as u32)).collect()
     }
 
     pub fn get_input_state_create_info(&mut self) -> PipelineVertexInputStateCreateInfo {
-        self.binding_desc = self.get_binding_desc();
+        self.binding_desc = self.get_attrib_binding_desc();
 
         PipelineVertexInputStateCreateInfo::default()
             .vertex_attribute_descriptions(&self.attrib_desc)
             .vertex_binding_descriptions(&self.binding_desc)
     }
 
-    pub fn get_floats_for_binding(&self, i: usize) -> usize {
-        self.stride_per_binding[i] / 4
-    }
-}
-
-impl<'a> PipelineDesc<'a> {
-    pub fn new((vertex_shader_code, fragment_shader_code): (&'a [u8], &'a [u8])) -> PipelineDesc<'a> {
-        Self {
-            vertex_shader_code,
-            fragment_shader_code,
-        }
+    pub fn get_total_bytes(&self) -> usize {
+        self.stride_per_binding[0]
     }
 }
 
 impl VulkanPipeline {
     pub fn new(device: VkDeviceRef, render_pass: &RenderPassWrapper,
-               desc: PipelineDesc, mut vert_desc: VertexInputDesc) -> VulkanPipeline {
+               mut pipeline_desc: PipelineDescWrapper) -> VulkanPipeline {
         let g = range_event_start!("Create pipeline");
 
         // 1. Create layout
-        let bindings_desc = [
+        let uniform_bindings_desc = pipeline_desc.uniform_bindings;
+
+        let bindings_desc = uniform_bindings_desc.into_iter().map(|binding| {
             DescriptorSetLayoutBinding::default()
-                .binding(0)
+                .binding(binding)
                 .descriptor_count(1)
                 .descriptor_type(DescriptorType::UNIFORM_BUFFER)
-                .stage_flags(ShaderStageFlags::FRAGMENT),
-
-            DescriptorSetLayoutBinding::default()
-                .binding(1)
-                .descriptor_count(1)
-                .descriptor_type(DescriptorType::COMBINED_IMAGE_SAMPLER)
-                .stage_flags(ShaderStageFlags::FRAGMENT)];
+                .stage_flags(ShaderStageFlags::FRAGMENT | ShaderStageFlags::VERTEX)
+        }).collect::<Vec<_>>();
         let descriptor_set_layout_info =
             vk::DescriptorSetLayoutCreateInfo::default().bindings(&bindings_desc);
 
@@ -134,13 +145,13 @@ impl VulkanPipeline {
         let pipeline_layout = unsafe { device.create_pipeline_layout(&pipeline_layout_info, None).unwrap() };
 
         // shaders
-        let vert_code = desc.vertex_shader_code;
+        let vert_code = pipeline_desc.vertex_shader;
         let vert_code: Vec<u32> = vert_code.chunks(4).map(|bytes| u32::from_le_bytes(bytes.try_into().unwrap())).collect();
         let vertex_module = unsafe { device.create_shader_module(
             &ShaderModuleCreateInfo::default().code(&vert_code), None)
         }.unwrap();
 
-        let frag_code = desc.fragment_shader_code;
+        let frag_code = pipeline_desc.fragment_shader;
         let frag_code: Vec<u32> = frag_code.chunks(4).map(|bytes| u32::from_le_bytes(bytes.try_into().unwrap())).collect();
         let frag_module = unsafe { device.create_shader_module(
             &ShaderModuleCreateInfo::default().code(&frag_code), None)
@@ -162,9 +173,8 @@ impl VulkanPipeline {
         let dynamic_state = PipelineDynamicStateCreateInfo::default()
             .dynamic_states(&[DynamicState::VIEWPORT, DynamicState::SCISSOR]);
 
-        let input_assembly = PipelineInputAssemblyStateCreateInfo::default()
-            .topology(vert_desc.topology);
-        let vertex_input = vert_desc.get_input_state_create_info();
+        let input_assembly = pipeline_desc.vertex_assembly.get_assembly_create_info();
+        let vertex_input = pipeline_desc.attributes.get_input_state_create_info();
 
         let rast_info = PipelineRasterizationStateCreateInfo::default()
             .cull_mode(CullModeFlags::NONE)
@@ -216,7 +226,6 @@ impl VulkanPipeline {
             pipeline_layout,
             pipeline_cache,
             descriptor_set_layout,
-            total_floats_per_attrib: vert_desc.get_floats_for_binding(0),
         }
     }
 
@@ -229,9 +238,6 @@ impl VulkanPipeline {
     }
     pub fn get_descriptor_set_layout(&self) -> DescriptorSetLayout {
         self.descriptor_set_layout
-    }
-    pub fn get_total_floats_per_attrib(&self,) -> usize {
-        self.total_floats_per_attrib
     }
 }
 
