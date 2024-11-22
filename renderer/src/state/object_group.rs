@@ -20,7 +20,7 @@ impl ObjectGroup {
         });
 
         let map_stats = UniformState::new(MapStats {
-            r: 0.5,
+            r: 0.2,
             ar: 500.0
         });
 

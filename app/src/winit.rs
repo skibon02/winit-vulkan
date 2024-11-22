@@ -14,6 +14,7 @@ pub use winit::platform::android::activity::AndroidApp;
 use winit::raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use renderer::pipelines::circle::CircleAttributes;
 use renderer::state::object_group::ObjectGroup;
+use renderer::uniforms::{MapStats, Time};
 use renderer::vulkan_backend::VulkanBackend;
 
 use renderer::vulkan_backend::config::VulkanRenderConfig;
@@ -91,6 +92,7 @@ impl ApplicationHandler for WinitApp {
 pub struct AppState {
     app_finished: bool,
     prev_touch_event_time: Instant,
+    start_time: Instant,
 
     vulkan_backend: VulkanBackend,
     window: Window,
@@ -132,6 +134,7 @@ impl AppState {
             frame_cnt: 0,
 
             rendering_active: true,
+            start_time: Instant::now(),
         }
     }
 
@@ -200,11 +203,11 @@ impl AppState {
 
                 self.object_group.circle.update(CircleAttributes {
                     pos: [
-                        t.location.x as f32 / self.window.inner_size().width as f32,
-                        t.location.y as f32 / self.window.inner_size().height as f32,
+                        (t.location.x as f32 / self.window.inner_size().width as f32) * 2.0 - 1.0,
+                        (t.location.y as f32 / self.window.inner_size().height as f32) * 2.0 - 1.0,
                     ],
                     trig_time: 0,
-                    color: [1.0, 0.0, 0.0, 1.0],
+                    color: [0.4, 0.0, 0.6, 1.0],
                 });
             }
 
@@ -222,6 +225,14 @@ impl AppState {
             }
 
             WindowEvent::RedrawRequested => {
+                let now = self.start_time.elapsed().as_millis() as u32;
+                // self.object_group.time.update(Time {
+                //     time: now,
+                // });
+                // self.object_group.map_stats.update(MapStats {
+                //     r: 0.5 + 0.5 * (now as f32 / 1000.0).sin(),
+                //     ar: 0.0
+                // });
                 let g = range_event_start!("[APP] Redraw requested");
                 if !self.app_finished && self.rendering_active {
                     self.vulkan_backend.render(&mut self.object_group)?;

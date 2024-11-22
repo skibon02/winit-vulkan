@@ -80,8 +80,8 @@ impl ObjectResourcePool {
 
                 let descriptor_set = ObjectDescriptorSet::new(self.device.clone(),
                    &mut self.descriptor_set_pool, pipeline_entry.get_descriptor_set_layout(),
-                    obj_state.uniform_bindings.clone().into_iter().map(|(binding, buffer)| {
-                        (binding, *self.uniform_buffers.get(&buffer).unwrap())
+                    obj_state.uniform_bindings.clone().into_iter().map(|(binding, buffer_id)| {
+                        (binding, *self.uniform_buffers.get(&buffer_id).unwrap())
                     }));
 
                 // create vertex buffer for per-instance attributes

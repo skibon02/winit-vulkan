@@ -69,9 +69,15 @@ impl DescriptorSetPool {
             .descriptor_pool(self.descriptor_pool)
             .set_layouts(&set_layouts);
         let descriptor_set = unsafe { self.device.allocate_descriptor_sets(&alloc_info).unwrap()[0] };
-
+        
 
         let bindings: Vec<_> = bindings.collect();
+        
+        self.allocated_sets += 1;
+        self.allocated_uniform_buffers += bindings.len() as u32;
+        if self.allocated_sets > self.capacity_sets || self.allocated_uniform_buffers > self.capacity_uniform_buffers {
+            panic!("Descriptor set pool exceeded capacity");
+        }
         // Update descriptor set
         let buffer_infos: Vec<_> = bindings.iter().map(|(_, buffer)| {
             [
