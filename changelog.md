@@ -19,12 +19,12 @@ A place where every action with the project is tracked.
 
 ## In progress
 ### Milestone: **Simple 2d app**
-⚙️ Attribute fields diff support \
 ⚙️ Resource loading abstraction \
 ⚙️ Uniform abstraction (image sampler)
 
 
 ## Done
+✅ Attribute fields diff support \
 ✅ Uniform abstraction (only buffer) \
 ✅ Pipeline abstraction \
 ✅ Render state abstraction \
