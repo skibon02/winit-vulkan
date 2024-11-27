@@ -48,7 +48,7 @@ impl ObjectResourcePool {
                   draw_state_updates: &mut impl DrawStateCollect,
                   render_pass: &RenderPassWrapper) {
         let uniform_updates = draw_state_updates.collect_uniform_updates();
-        for (id, uniform_data) in uniform_updates {
+        for (id, uniform_data, uniform_offset) in uniform_updates {
             let entry = self.uniform_buffers.entry(id).or_insert_with(|| {
                 info!("Creating new uniform buffer with id: {}", id);
                 let buffer = resource_manager.create_buffer(
@@ -58,7 +58,7 @@ impl ObjectResourcePool {
                 buffer
             });
             info!("Updating uniform buffer with id: {}. Data: {:?}", id, uniform_data);
-            resource_manager.fill_buffer(*entry, &uniform_data);
+            resource_manager.fill_buffer(*entry, &uniform_data, uniform_offset);
         }
 
         let objects_updates = draw_state_updates.collect_object_updates();
@@ -85,7 +85,7 @@ impl ObjectResourcePool {
                     }));
 
                 // create vertex buffer for per-instance attributes
-                let vertex_data = obj_state.new_attributes;
+                let vertex_data = obj_state.attributes_data;
                 let vertex_buffer_per_ins = resource_manager.create_buffer(
                     vertex_data.len() as DeviceSize,
                     BufferUsageFlags::VERTEX_BUFFER,
@@ -105,8 +105,8 @@ impl ObjectResourcePool {
             info!("Updating object with id: {}. State: {:?}", id, obj_state);
 
             // update per-instance attributes
-            let vertex_data = obj_state.new_attributes;
-            resource_manager.fill_buffer(entry.vertex_buffer_per_ins, &vertex_data);
+            let vertex_data = obj_state.attributes_data;
+            resource_manager.fill_buffer(entry.vertex_buffer_per_ins, &vertex_data, obj_state.data_offset);
         }
 
         // match state {

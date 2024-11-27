@@ -1,5 +1,5 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
-use crate::state::uniform_state::UniformDesc;
+use crate::layout::LayoutInfo;
 
 pub type ObjectId = usize;
 static LAST_RC_ID: AtomicUsize = AtomicUsize::new(0);
@@ -9,9 +9,9 @@ pub fn get_new_object_id() -> ObjectId {
 }
 
 pub type UniformResourceId = usize;
-pub struct TypedUniformResourceId<P: UniformDesc> {
+pub struct TypedUniformResourceId<L: LayoutInfo> {
     pub id: UniformResourceId,
-    pub _p: std::marker::PhantomData<P>
+    pub _p: std::marker::PhantomData<L>
 }
 
 

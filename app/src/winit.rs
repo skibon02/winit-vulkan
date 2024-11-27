@@ -190,6 +190,61 @@ impl AppState {
                     self.window.set_fullscreen(None);
                 }
             }
+            WindowEvent::KeyboardInput {
+                event: winit::event::KeyEvent {
+                    logical_key: keyboard::Key::Named(NamedKey::ArrowLeft),
+                    state: winit::event::ElementState::Pressed,
+                    ..
+                },
+                ..
+            } => {
+                self.object_group.circle.modify_pos(|mut pos| {
+                    pos[0] -= 0.1;
+                    pos
+                });
+            }
+
+            WindowEvent::KeyboardInput {
+                event: winit::event::KeyEvent {
+                    logical_key: keyboard::Key::Named(NamedKey::ArrowRight),
+                    state: winit::event::ElementState::Pressed,
+                    ..
+                },
+                ..
+            } => {
+                self.object_group.circle.modify_pos(|mut pos| {
+                    pos[0] += 0.1;
+                    pos
+                });
+            }
+
+            WindowEvent::KeyboardInput {
+                event: winit::event::KeyEvent {
+                    logical_key: keyboard::Key::Named(NamedKey::ArrowUp),
+                    state: winit::event::ElementState::Pressed,
+                    ..
+                },
+                ..
+            } => {
+                self.object_group.circle.modify_pos(|mut pos| {
+                    pos[1] += 0.1;
+                    pos
+                });
+            }
+
+            WindowEvent::KeyboardInput {
+                event: winit::event::KeyEvent {
+                    logical_key: keyboard::Key::Named(NamedKey::ArrowDown),
+                    state: winit::event::ElementState::Pressed,
+                    ..
+                },
+                ..
+            } => {
+                self.object_group.circle.modify_pos(|mut pos| {
+                    pos[1] -= 0.1;
+                    pos
+                });
+            }
 
             WindowEvent::Touch(t) => {
                 let g = range_event_start!("[APP] Touch event");
@@ -201,14 +256,10 @@ impl AppState {
                 info!("Elapsed: {:?}", elapsed);
 
 
-                self.object_group.circle.update(CircleAttributes {
-                    pos: [
+                self.object_group.circle.set_pos([
                         (t.location.x as f32 / self.window.inner_size().width as f32) * 2.0 - 1.0,
                         (t.location.y as f32 / self.window.inner_size().height as f32) * 2.0 - 1.0,
-                    ],
-                    trig_time: 0,
-                    color: [0.4, 0.0, 0.6, 1.0],
-                });
+                    ]);
             }
 
             WindowEvent::MouseInput {
@@ -217,11 +268,12 @@ impl AppState {
                 ..
             } => {
                 info!("Mouse left button pressed!");
-                self.object_group.circle.update(CircleAttributes {
-                    pos: [0.0, 0.0],
-                    trig_time: 0,
-                    color: [1.0, 0.0, 0.0, 1.0],
-                });
+                self.object_group.circle.set_color([
+                    0.5 + 0.5 * (self.start_time.elapsed().as_millis() as f32 / 1000.0).sin(),
+                    0.5 + 0.5 * (self.start_time.elapsed().as_millis() as f32 / 1000.0).cos(),
+                    0.5 + 0.5 * (self.start_time.elapsed().as_millis() as f32 / 1000.0).sin(),
+                    1.0,
+                ]);
             }
 
             WindowEvent::RedrawRequested => {

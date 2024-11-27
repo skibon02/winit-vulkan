@@ -1,7 +1,7 @@
 use crate::vulkan_backend::wrappers::command_pool::VkCommandPool;
 use crate::vulkan_backend::wrappers::device::VkDeviceRef;
 use crate::vulkan_backend::wrappers::image::image_2d_info;
-use ash::vk::{self, CommandBufferUsageFlags, Extent2D, Extent3D, ImageCreateInfo, SampleCountFlags, Sampler};
+use ash::vk::{self, CommandBufferUsageFlags, DeviceSize, Extent2D, Extent3D, ImageCreateInfo, SampleCountFlags, Sampler};
 use std::fmt::Debug;
 use sparkles_macro::range_event_start;
 
@@ -204,7 +204,7 @@ impl ResourceManager {
         res
     }
 
-    pub fn fill_buffer<T: Copy + Debug>(&mut self, resource: BufferResource, data: &[T]) {
+    pub fn fill_buffer<T: Copy + Debug>(&mut self, resource: BufferResource, data: &[T], offset: usize) {
         //size checktransfer_completed_fence
         let size = size_of_val(data) as vk::DeviceSize;
         assert!(size <= resource.size);
@@ -217,7 +217,7 @@ impl ResourceManager {
                         .device
                         .map_memory(
                             resource.memory,
-                            0,
+                            offset as DeviceSize,
                             vk::WHOLE_SIZE,
                             vk::MemoryMapFlags::empty(),
                         )
@@ -288,7 +288,7 @@ impl ResourceManager {
                         .device
                         .map_memory(
                             staging_buffer.memory,
-                            0,
+                            offset as DeviceSize,
                             vk::WHOLE_SIZE,
                             vk::MemoryMapFlags::empty(),
                         )

@@ -1,6 +1,7 @@
 use std::any::TypeId;
 use ash::vk::PipelineInputAssemblyStateCreateInfo;
 use smallvec::SmallVec;
+use crate::layout::LayoutInfo;
 use crate::object_handles::UniformResourceId;
 use crate::vulkan_backend::pipeline::VertexInputDesc;
 
@@ -29,21 +30,8 @@ impl VertexAssembly {
     }
 }
 
-
-pub trait AttributesDesc: Sized {
-    fn as_bytes(&self) -> &[u8] {
-        unsafe {
-            std::slice::from_raw_parts(
-                self as *const Self as *const u8,
-                size_of::<Self>(),
-            )
-        }
-    }
-    fn get_attributes_configuration() -> VertexInputDesc;
-}
-
 pub trait PipelineDesc: Default + 'static {
-    type AttributesPerIns: AttributesDesc;
+    type PerInsAttrib: LayoutInfo;
     type Uniforms;
     const SHADERS: (&'static [u8], &'static [u8]);
     fn get_uniform_ids(uniforms: Self::Uniforms) -> SmallVec<[(u32, UniformResourceId); 5]>;
@@ -63,7 +51,7 @@ pub trait PipelineDesc: Default + 'static {
             vertex_shader: Self::SHADERS.0,
             fragment_shader: Self::SHADERS.1,
 
-            attributes: Self::AttributesPerIns::get_attributes_configuration(),
+            attributes: Self::PerInsAttrib::get_attributes_configuration(),
             uniform_bindings: Self::get_uniform_bindings(),
         }
     }

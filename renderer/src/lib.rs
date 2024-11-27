@@ -7,6 +7,7 @@ pub mod pipelines;
 pub mod state;
 mod object_handles;
 pub mod uniforms;
+pub mod layout;
 
 #[cfg(target_os = "android")]
 pub static VM: OnceLock<Arc<Mutex<Option<jni::JavaVM>>>> = OnceLock::new();

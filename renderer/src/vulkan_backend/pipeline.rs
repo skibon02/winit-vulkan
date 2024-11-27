@@ -1,9 +1,9 @@
 use std::ffi::CStr;
 use ash::vk;
 use ash::vk::{ColorComponentFlags, CompareOp, CullModeFlags, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorType, DynamicState, Format, GraphicsPipelineCreateInfo, Pipeline, PipelineCache, PipelineCacheCreateInfo, PipelineColorBlendAttachmentState, PipelineColorBlendStateCreateInfo, PipelineDepthStencilStateCreateInfo, PipelineDynamicStateCreateInfo, PipelineInputAssemblyStateCreateInfo, PipelineLayout, PipelineLayoutCreateInfo, PipelineMultisampleStateCreateInfo, PipelineRasterizationStateCreateInfo, PipelineShaderStageCreateInfo, PipelineVertexInputStateCreateInfo, PipelineViewportStateCreateInfo, PrimitiveTopology, SampleCountFlags, ShaderModuleCreateInfo, ShaderStageFlags, VertexInputAttributeDescription, VertexInputBindingDescription};
-use log::info;
-use smallvec::SmallVec;
+use smallvec::{smallvec, SmallVec};
 use sparkles_macro::range_event_start;
+use crate::layout::MemberMeta;
 use crate::pipelines::PipelineDescWrapper;
 use crate::vulkan_backend::render_pass::RenderPassWrapper;
 use crate::vulkan_backend::wrappers::device::VkDeviceRef;
@@ -28,91 +28,38 @@ macro_rules! use_shader {
 
 #[derive(Debug, Clone)]
 pub struct VertexInputDesc {
-    attrib_desc: SmallVec<[VertexInputAttributeDescription; 5]>,
+    attrib_desc: SmallVec<[VertexInputAttributeDescription; 1]>,
     binding_desc: SmallVec<[VertexInputBindingDescription; 1]>,
-    stride_per_binding: Vec<usize>,
     last_location: usize,
 }
 
 /// Use single binding for now
 impl VertexInputDesc {
-    pub fn new() -> Self {
+    pub fn new(members_meta: &'static [MemberMeta], size: usize) -> Self {
+
+        let binding_desc = smallvec![VertexInputBindingDescription::default()
+                .binding(0)
+                .input_rate(vk::VertexInputRate::INSTANCE)
+                .stride(size as u32)];
+
+        let attrib_desc = members_meta.iter().enumerate().map(|(i, member)| {
+            VertexInputAttributeDescription::default()
+                .binding(0)
+                .format(member.ty.get_format())
+                .offset(member.range.start as u32)
+                .location(i as u32)
+        }).collect::<SmallVec<_>>();
         Self {
-            attrib_desc: SmallVec::new(),
-            binding_desc: SmallVec::new(),
-            stride_per_binding: vec![0],
+            attrib_desc,
+            binding_desc,
             last_location: 0,
         }
     }
 
-    pub fn attrib_4_floats(mut self) -> Self {
-        let cur_binding = self.stride_per_binding.len() - 1;
-        self.attrib_desc.push(VertexInputAttributeDescription::default()
-            .binding(cur_binding as u32)
-            .format(Format::R32G32B32A32_SFLOAT)
-            .offset(self.stride_per_binding[cur_binding] as u32)
-            .location(self.last_location as u32));
-
-        self.last_location += 1;
-        self.stride_per_binding[cur_binding] += 4 * 4;
-        self
-    }
-
-    pub fn attrib_3_floats(mut self) -> Self {
-        let cur_binding = self.stride_per_binding.len() - 1;
-        self.attrib_desc.push(VertexInputAttributeDescription::default()
-            .binding(cur_binding as u32)
-            .format(Format::R32G32B32_SFLOAT)
-            .offset(self.stride_per_binding[cur_binding] as u32)
-            .location(self.last_location as u32));
-
-        self.last_location += 1;
-        self.stride_per_binding[cur_binding] += 4 * 3;
-        self
-    }
-    pub fn attrib_2_floats(mut self) -> Self {
-        let cur_binding = self.stride_per_binding.len() - 1;
-        self.attrib_desc.push(VertexInputAttributeDescription::default()
-            .binding(cur_binding as u32)
-            .format(Format::R32G32_SFLOAT)
-            .offset(self.stride_per_binding[cur_binding] as u32)
-            .location(self.last_location as u32));
-
-        self.last_location += 1;
-        self.stride_per_binding[cur_binding] += 4 * 2;
-        self
-    }
-
-    pub fn attrib_u32(mut self) -> Self {
-        let cur_binding = self.stride_per_binding.len() - 1;
-        self.attrib_desc.push(VertexInputAttributeDescription::default()
-            .binding(cur_binding as u32)
-            .format(Format::R32_UINT)
-            .offset(self.stride_per_binding[cur_binding] as u32)
-            .location(self.last_location as u32));
-
-        self.last_location += 1;
-        self.stride_per_binding[cur_binding] += 4;
-        self
-    }
-    pub fn get_attrib_binding_desc(&self) -> SmallVec<[VertexInputBindingDescription; 1]> {
-        self.stride_per_binding.iter().enumerate()
-            .map(|(i, stride)| VertexInputBindingDescription::default()
-                .binding(i as u32)
-                .input_rate(vk::VertexInputRate::INSTANCE)
-                .stride(*stride as u32)).collect()
-    }
-
     pub fn get_input_state_create_info(&mut self) -> PipelineVertexInputStateCreateInfo {
-        self.binding_desc = self.get_attrib_binding_desc();
-
         PipelineVertexInputStateCreateInfo::default()
             .vertex_attribute_descriptions(&self.attrib_desc)
             .vertex_binding_descriptions(&self.binding_desc)
-    }
-
-    pub fn get_total_bytes(&self) -> usize {
-        self.stride_per_binding[0]
     }
 }
 
