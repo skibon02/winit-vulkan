@@ -2,10 +2,12 @@ use std::mem::offset_of;
 use smallvec::{smallvec, SmallVec};
 use crate::layout::{LayoutInfo, MemberMeta};
 use crate::layout::types::*;
-use crate::object_handles::{TypedUniformResourceId, UniformResourceId};
-use crate::pipelines::{PipelineDesc, VertexAssembly};
+use crate::object_handles::{UniformResourceId};
+use crate::pipelines::{PipelineDesc, UniformBindingType, VertexAssembly};
 use crate::state::StateDiff;
-use crate::uniforms::{MapStats, Time};
+use crate::state::uniform_state::{UniformImageState, UniformBufferState};
+use crate::uniform_buffers::map_stats::MapStats;
+use crate::uniform_buffers::time::Time;
 use crate::use_shader;
 use crate::vulkan_backend::pipeline::VertexInputDesc;
 
@@ -96,14 +98,16 @@ pub struct CirclePipleine;
 
 impl PipelineDesc for CirclePipleine {
     type PerInsAttrib = CircleAttributes;
-    type Uniforms = (TypedUniformResourceId<Time>, TypedUniformResourceId<MapStats>);
+    type Uniforms<'a> = (&'a UniformBufferState<Time>, &'a UniformBufferState<MapStats>, &'a UniformImageState);
     const SHADERS: (&'static [u8], &'static [u8]) = use_shader!("circle");
-    fn get_uniform_ids(uniforms: Self::Uniforms) -> SmallVec<[(u32, UniformResourceId); 5]> {
-        let (time, map_stats) = uniforms;
-        smallvec![(0, time.id), (1, map_stats.id)]
+    fn get_uniform_ids(uniforms: Self::Uniforms<'_>) -> (SmallVec<[(u32, UniformResourceId); 5]>, SmallVec<[(u32, UniformResourceId); 5]>) {
+        let (time, map_stats, image) = uniforms;
+        (smallvec![(0, time.id()), (1, map_stats.id())], smallvec![(2, image.id())])
     }
-    fn get_uniform_bindings() -> SmallVec<[u32; 5]> {
-        smallvec![0, 1]
+    fn get_uniform_bindings() -> SmallVec<[(u32, UniformBindingType); 5]> {
+        smallvec![(0, UniformBindingType::UniformBuffer),
+            (1, UniformBindingType::UniformBuffer),
+            (2, UniformBindingType::CombinedImageSampler)]
     }
     const VERTEX_ASSEMBLY: VertexAssembly = VertexAssembly::TriangleStrip;
     const VERTICES_PER_INSTANCE: usize = 4;

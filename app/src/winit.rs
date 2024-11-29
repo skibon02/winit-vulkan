@@ -14,7 +14,6 @@ pub use winit::platform::android::activity::AndroidApp;
 use winit::raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use renderer::pipelines::circle::CircleAttributes;
 use renderer::state::object_group::ObjectGroup;
-use renderer::uniforms::{MapStats, Time};
 use renderer::vulkan_backend::VulkanBackend;
 
 use renderer::vulkan_backend::config::VulkanRenderConfig;

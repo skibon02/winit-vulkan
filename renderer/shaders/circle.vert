@@ -10,7 +10,7 @@ layout (location = 2) in uint in_trig_time;
 layout(location = 0) out vec2 frag_pos;
 layout(location = 1) out vec4 frag_color;
 
-// substituted uniforms definitions
+// substituted uniform_buffers definitions
 layout (std140, binding = 0) uniform Time {
     uint time;
 } u_time;

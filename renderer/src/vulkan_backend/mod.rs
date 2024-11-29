@@ -346,7 +346,7 @@ impl VulkanBackend {
 
         // let uniform_state = draw_state_diff.collect_uniform_states();
         self.object_resource_pool.update_objects(&mut self.resource_manager, draw_state_diff, &self.render_pass);
-        draw_state_diff.clear_state();
+        draw_state_diff.clear_updates();
         drop(g);
 
         // 3) record command buffer (if index was changed)

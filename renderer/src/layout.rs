@@ -1,7 +1,7 @@
 use std::ops::Range;
 use crate::layout::types::GlslTypeVariant;
 use crate::state::StateDiff;
-use crate::state::uniform_state::UniformResource;
+use crate::state::uniform_state::UniformBufferState;
 use crate::vulkan_backend::pipeline::VertexInputDesc;
 
 pub mod types {
@@ -134,8 +134,8 @@ pub trait LayoutInfo : Sized {
 
     // Full structure size. Alignment included.
     const SIZE: usize = size_of::<Self>();
-    fn to_new_uniform(self) -> UniformResource<Self> {
-        UniformResource::new(self)
+    fn to_new_uniform(self) -> UniformBufferState<Self> {
+        UniformBufferState::new(self)
     }
     fn to_state(self) -> StateDiff<Self> {
         StateDiff::new(self)

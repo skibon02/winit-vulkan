@@ -1,10 +1,11 @@
 use std::ffi::CStr;
 use ash::vk;
 use ash::vk::{ColorComponentFlags, CompareOp, CullModeFlags, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorType, DynamicState, Format, GraphicsPipelineCreateInfo, Pipeline, PipelineCache, PipelineCacheCreateInfo, PipelineColorBlendAttachmentState, PipelineColorBlendStateCreateInfo, PipelineDepthStencilStateCreateInfo, PipelineDynamicStateCreateInfo, PipelineInputAssemblyStateCreateInfo, PipelineLayout, PipelineLayoutCreateInfo, PipelineMultisampleStateCreateInfo, PipelineRasterizationStateCreateInfo, PipelineShaderStageCreateInfo, PipelineVertexInputStateCreateInfo, PipelineViewportStateCreateInfo, PrimitiveTopology, SampleCountFlags, ShaderModuleCreateInfo, ShaderStageFlags, VertexInputAttributeDescription, VertexInputBindingDescription};
+use log::info;
 use smallvec::{smallvec, SmallVec};
 use sparkles_macro::range_event_start;
 use crate::layout::MemberMeta;
-use crate::pipelines::PipelineDescWrapper;
+use crate::pipelines::{PipelineDescWrapper, UniformBindingType};
 use crate::vulkan_backend::render_pass::RenderPassWrapper;
 use crate::vulkan_backend::wrappers::device::VkDeviceRef;
 
@@ -71,13 +72,18 @@ impl VulkanPipeline {
         // 1. Create layout
         let uniform_bindings_desc = pipeline_desc.uniform_bindings;
 
-        let bindings_desc = uniform_bindings_desc.into_iter().map(|binding| {
+        let bindings_desc = uniform_bindings_desc.into_iter().map(|(binding, binding_type)| {
+            let descriptor_type = match binding_type {
+                UniformBindingType::UniformBuffer => DescriptorType::UNIFORM_BUFFER,
+                UniformBindingType::CombinedImageSampler => DescriptorType::COMBINED_IMAGE_SAMPLER,
+            };
             DescriptorSetLayoutBinding::default()
                 .binding(binding)
                 .descriptor_count(1)
-                .descriptor_type(DescriptorType::UNIFORM_BUFFER)
+                .descriptor_type(descriptor_type)
                 .stage_flags(ShaderStageFlags::FRAGMENT | ShaderStageFlags::VERTEX)
         }).collect::<Vec<_>>();
+        info!("Descriptor set layout bindings: {:?}", bindings_desc);
         let descriptor_set_layout_info =
             vk::DescriptorSetLayoutCreateInfo::default().bindings(&bindings_desc);
 

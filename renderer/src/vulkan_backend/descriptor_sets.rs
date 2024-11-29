@@ -2,10 +2,12 @@ use crate::vulkan_backend::resource_manager::{BufferResource, ResourceManager};
 use crate::vulkan_backend::wrappers::device::VkDeviceRef;
 use ash::vk;
 use ash::vk::{BufferUsageFlags, CommandBuffer, DescriptorBufferInfo, DescriptorPool, DescriptorPoolSize, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorType, Extent2D, ImageTiling, PipelineBindPoint, PipelineLayout, SampleCountFlags, ShaderStageFlags, WriteDescriptorSet, WHOLE_SIZE};
+use log::info;
 use smallvec::SmallVec;
 use sparkles_macro::range_event_start;
 use crate::util::get_resource;
 use crate::util::image::read_image_from_bytes;
+use crate::vulkan_backend::object_resource_pool::UniformImage;
 use crate::vulkan_backend::wrappers::image::imageview_info_for_image;
 
 pub struct DescriptorSetPool {
@@ -61,8 +63,9 @@ impl DescriptorSetPool {
     }
 
 
-    pub fn allocate_descriptor_sets(&mut self, descriptor_set_layout: DescriptorSetLayout, 
-        bindings: impl Iterator<Item=(u32, BufferResource)>) -> DescriptorSet {
+    pub fn allocate_descriptor_sets<'a>(&mut self, descriptor_set_layout: DescriptorSetLayout,
+                                        buffer_bindings: impl Iterator<Item=(u32, BufferResource)>,
+                                        image_bindings: impl Iterator<Item=(u32, &'a UniformImage)>) -> DescriptorSet {
 
         let set_layouts = [descriptor_set_layout];
         let alloc_info = DescriptorSetAllocateInfo::default()
@@ -71,15 +74,20 @@ impl DescriptorSetPool {
         let descriptor_set = unsafe { self.device.allocate_descriptor_sets(&alloc_info).unwrap()[0] };
         
 
-        let bindings: Vec<_> = bindings.collect();
+        let buffer_bindings: Vec<_> = buffer_bindings.collect();
+        let image_bindings: Vec<_> = image_bindings.collect();
         
         self.allocated_sets += 1;
-        self.allocated_uniform_buffers += bindings.len() as u32;
-        if self.allocated_sets > self.capacity_sets || self.allocated_uniform_buffers > self.capacity_uniform_buffers {
+        self.allocated_uniform_buffers += buffer_bindings.len() as u32;
+        self.allocated_image_samplers += image_bindings.len() as u32;
+
+        if self.allocated_sets > self.capacity_sets ||
+            self.allocated_uniform_buffers > self.capacity_uniform_buffers ||
+            self.allocated_image_samplers > self.capacity_image_samplers {
             panic!("Descriptor set pool exceeded capacity");
         }
         // Update descriptor set
-        let buffer_infos: Vec<_> = bindings.iter().map(|(_, buffer)| {
+        let buffer_infos: Vec<_> = buffer_bindings.iter().map(|(_, buffer)| {
             [
                 DescriptorBufferInfo::default()
                     .offset(0)
@@ -87,45 +95,37 @@ impl DescriptorSetPool {
                     .range(WHOLE_SIZE)
             ]
         }).collect();
-        // let image_infos: Vec<_> = bindings.iter().filter_map(|binding| {
-        //     if let DescriptorSetBindingResource::Image(image, sampler) = binding {
-        //
-        //         Some([vk::DescriptorImageInfo::default()
-        //                 .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-        //                 .image_view(*image)
-        //                 .sampler(*sampler)
-        //         ])
-        //     }
-        //     else {
-        //         None
-        //     }
-        // }).collect();
+        let image_infos: Vec<_> = image_bindings.iter().map(|(binding, image_sampler)| {
+            let image = image_sampler.image_view;
+            let sampler = image_sampler.sampler;
+
+            [vk::DescriptorImageInfo::default()
+                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .image_view(image)
+                .sampler(sampler)
+            ]
+        }).collect();
 
         // let mut image_info_i = 0;
-        let descriptor_writes: Vec<_> = bindings.iter().enumerate().map(|(i, (binding, _))| {
-            let res = WriteDescriptorSet::default()
+        let descriptor_writes: Vec<_> = buffer_bindings.iter().enumerate().map(|(i, (binding, _))| {
+            WriteDescriptorSet::default()
                 .descriptor_type(DescriptorType::UNIFORM_BUFFER)
                 .descriptor_count(1)
                 .dst_set(descriptor_set)
                 .dst_binding(*binding)
                 .dst_array_element(0)
-                .buffer_info(&buffer_infos[i]);
-
-            res
-                // DescriptorSetBindingResource::Image(image, sampler) => {
-                //
-                //     let res = WriteDescriptorSet::default()
-                //         .descriptor_type(DescriptorType::COMBINED_IMAGE_SAMPLER)
-                //         .descriptor_count(1)
-                //         .dst_set(descriptor_set)
-                //         .dst_binding(1)
-                //         .dst_array_element(0)
-                //         .image_info(&image_infos[image_info_i]);
-                //
-                //     image_info_i += 1;
-                //     res
-                // }
-        }).collect();
+                .buffer_info(&buffer_infos[i])
+        }).chain(image_bindings.iter().enumerate().map(|(i, (binding, _))| {
+            WriteDescriptorSet::default()
+                .descriptor_type(DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .descriptor_count(1)
+                .dst_set(descriptor_set)
+                .dst_binding(*binding)
+                .dst_array_element(0)
+                .image_info(&image_infos[i])
+        })).collect();
+        
+        info!("Descriptor writes: {:?}", descriptor_writes);
 
         unsafe { self.device.update_descriptor_sets(&descriptor_writes, &[]) }
 
@@ -152,32 +152,14 @@ pub struct ObjectDescriptorSet {
 }
 
 impl ObjectDescriptorSet {
-    pub fn new(device: VkDeviceRef, descriptor_set_pool: &mut DescriptorSetPool,
-           descriptor_set_layout: DescriptorSetLayout, uniform_bindings: impl Iterator<Item=(u32, BufferResource)>) -> ObjectDescriptorSet {
+    pub fn new<'a>(device: VkDeviceRef, descriptor_set_pool: &mut DescriptorSetPool,
+                   descriptor_set_layout: DescriptorSetLayout,
+                   buffer_bindings: impl Iterator<Item=(u32, BufferResource)>,
+                   image_bindings: impl Iterator<Item=(u32, &'a UniformImage)>) -> ObjectDescriptorSet {
         let g = range_event_start!("[Vulkan] Create descriptor sets");
 
-        // // 2. Create images and buffers
-        // let buffer = resource_manager.create_buffer(3 * 4, BufferUsageFlags::UNIFORM_BUFFER);
-        // resource_manager.fill_buffer(buffer, &[0.0f32, 0.0, 0.0]);
-        // let data = get_resource("resources/damndashie.png".into()).unwrap();
-        // let (image_data, extent) = read_image_from_bytes(data).unwrap();
-        //
-        // let image = resource_manager.create_image(extent, vk::Format::R8G8B8A8_UNORM, ImageTiling::OPTIMAL,
-        //                                           vk::ImageUsageFlags::SAMPLED, SampleCountFlags::TYPE_1);
-        //
-        // resource_manager.fill_image(image, image_data.as_slice());
-        //
-        // let imageview_info = imageview_info_for_image(image.image, image.info, vk::ImageAspectFlags::COLOR);
-        // let imageview = unsafe { device.create_image_view(&imageview_info, None) }.unwrap();
-        // let sampler = resource_manager.create_sampler();
-        //
-        // let bindings = vec![
-        //     DescriptorSetBindingResource::Buffer(buffer),
-        //     DescriptorSetBindingResource::Image(imageview, sampler)
-        // ];
-
         // Ask pool to allocate descriptor set and perform writes
-        let descriptor_set = descriptor_set_pool.allocate_descriptor_sets(descriptor_set_layout, uniform_bindings);
+        let descriptor_set = descriptor_set_pool.allocate_descriptor_sets(descriptor_set_layout, buffer_bindings, image_bindings);
         
         Self {
             device,

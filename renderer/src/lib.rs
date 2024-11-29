@@ -6,7 +6,7 @@ pub mod util;
 pub mod pipelines;
 pub mod state;
 mod object_handles;
-pub mod uniforms;
+pub mod uniform_buffers;
 pub mod layout;
 
 #[cfg(target_os = "android")]

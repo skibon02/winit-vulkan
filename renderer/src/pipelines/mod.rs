@@ -32,10 +32,10 @@ impl VertexAssembly {
 
 pub trait PipelineDesc: Default + 'static {
     type PerInsAttrib: LayoutInfo;
-    type Uniforms;
+    type Uniforms<'a>;
     const SHADERS: (&'static [u8], &'static [u8]);
-    fn get_uniform_ids(uniforms: Self::Uniforms) -> SmallVec<[(u32, UniformResourceId); 5]>;
-    fn get_uniform_bindings() -> SmallVec<[u32; 5]>;
+    fn get_uniform_ids(uniforms: Self::Uniforms<'_>) -> (SmallVec<[(u32, UniformResourceId); 5]>, SmallVec<[(u32, UniformResourceId); 5]>);
+    fn get_uniform_bindings() -> SmallVec<[(u32, UniformBindingType); 5]>;
     const VERTEX_ASSEMBLY: VertexAssembly;
     const VERTICES_PER_INSTANCE: usize;
 
@@ -58,6 +58,12 @@ pub trait PipelineDesc: Default + 'static {
 }
 
 #[derive(Debug, Clone)]
+pub enum UniformBindingType {
+    UniformBuffer,
+    CombinedImageSampler,
+}
+
+#[derive(Debug, Clone)]
 pub struct PipelineDescWrapper {
     pub id: TypeId,
     pub name: &'static str,
@@ -67,5 +73,5 @@ pub struct PipelineDescWrapper {
     pub fragment_shader: &'static [u8],
 
     pub attributes: VertexInputDesc,
-    pub uniform_bindings: SmallVec<[u32; 5]>,
+    pub uniform_bindings: SmallVec<[(u32, UniformBindingType); 5]>,
 }

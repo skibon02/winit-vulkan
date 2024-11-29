@@ -19,11 +19,12 @@ A place where every action with the project is tracked.
 
 ## In progress
 ### Milestone: **Simple 2d app**
-⚙️ Resource loading abstraction \
-⚙️ Uniform abstraction (image sampler)
+⚙️ Introduce resource update abstraction: new/update/delete \
+⚙️ Implement multiple instances object
 
 
 ## Done
+✅ Uniform abstraction (image sampler) \
 ✅ Attribute fields diff support \
 ✅ Uniform abstraction (only buffer) \
 ✅ Pipeline abstraction \

@@ -14,6 +14,7 @@ pub enum HostAccessPolicy {
     SingleBuffer(usize),
 }
 
+/// User is responsible for not using this buffer after it's destroyed
 #[derive(Clone, Copy)]
 pub struct BufferResource {
     pub buffer: vk::Buffer,
@@ -21,6 +22,7 @@ pub struct BufferResource {
     pub size: vk::DeviceSize,
 }
 
+/// User is responsible for not using this image after it's destroyed
 #[derive(Clone, Copy)]
 pub struct ImageResource {
     pub image: vk::Image,

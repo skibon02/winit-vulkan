@@ -3,6 +3,7 @@ use smallvec::SmallVec;
 use crate::layout::LayoutInfo;
 use crate::object_handles::{ObjectId, UniformResourceId};
 use crate::pipelines::PipelineDescWrapper;
+use crate::state::uniform_state::{CollectUniformUpdates, UniformResourceUpdates};
 
 pub mod single_object;
 pub mod object_group;
@@ -63,13 +64,39 @@ pub fn merge_ranges(r1: Option<Range<usize>>, r2: Range<usize>) -> Option<Range<
 
 #[derive(Debug)]
 pub struct ObjectStateWrapper<'a> {
-    pub uniform_bindings: SmallVec<[(u32, UniformResourceId); 5]>,
+    pub buffer_bindings: SmallVec<[(u32, UniformResourceId); 5]>,
+    pub image_bindings: SmallVec<[(u32, UniformResourceId); 5]>,
     pub attributes_data: &'a [u8],
     pub data_offset: usize
 }
 
-pub trait DrawStateCollect {
-    fn collect_uniform_updates(&self) -> impl Iterator<Item=(UniformResourceId, &[u8], usize)>;
-    fn collect_object_updates(&self) -> impl Iterator<Item=(ObjectId, ObjectStateWrapper, fn() -> PipelineDescWrapper)>;
-    fn clear_state(&mut self);
+impl ObjectStateTrait for ObjectStateWrapper<'_> {
+    type FullState = ObjectStateWrapper<'static>;
+    type Updates = ObjectStateWrapper<'static>;
+}
+
+pub trait ObjectStateTrait {
+    type FullState;
+    type Updates;
+}
+pub enum ResourceOperation<S: ObjectStateTrait> {
+    Create(S::FullState),
+    Update(S::Updates),
+    Remove
+}
+
+pub trait CollectObjectUpdates {
+    fn collect_object_updates(&self) -> impl Iterator<Item=(ObjectId, ResourceOperation<ObjectStateWrapper>, fn() -> PipelineDescWrapper)>;
+    fn clear_object_updates(&mut self);
+}
+
+pub trait CollectUniformUpdates {
+    fn collect_uniform_updates(&self) -> impl Iterator<Item=(UniformResourceId, UniformResourceUpdates)>;
+    fn clear_uniform_updates(&mut self);
+}
+pub trait DrawStateCollect: CollectUniformUpdates + CollectObjectUpdates {
+    fn clear_updates(&mut self) {
+        self.clear_uniform_updates();
+        self.clear_object_updates();
+    }
 }
