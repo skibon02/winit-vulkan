@@ -32,7 +32,7 @@ use sparkles_macro::{instant_event, range_event_start};
 use std::array::from_fn;
 use std::ffi::{c_char, CString};
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
-use crate::state::{DrawStateCollect};
+use crate::collect_state::CollectDrawStateUpdates;
 use crate::vulkan_backend::config::VulkanRenderConfig;
 use crate::vulkan_backend::object_resource_pool::ObjectResourcePool;
 
@@ -305,7 +305,7 @@ impl VulkanBackend {
         );
     }
 
-    pub fn render(&mut self, draw_state_diff: &mut impl DrawStateCollect) -> anyhow::Result<()> {
+    pub fn render(&mut self, draw_state_diff: &mut impl CollectDrawStateUpdates) -> anyhow::Result<()> {
         let g = range_event_start!("[Vulkan] render");
         let frame_index = self.cur_command_buffer;
         self.cur_command_buffer = (frame_index + 1) % self.command_buffers.len();
@@ -342,7 +342,7 @@ impl VulkanBackend {
         }
 
         // 2) Update
-        let g = range_event_start!("[Vulkan] Update draw state");
+        let g = range_event_start!("[Vulkan] Update draw collect_state");
 
         // let uniform_state = draw_state_diff.collect_uniform_states();
         self.object_resource_pool.update_objects(&mut self.resource_manager, draw_state_diff, &self.render_pass);

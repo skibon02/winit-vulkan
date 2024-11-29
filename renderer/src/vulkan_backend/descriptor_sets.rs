@@ -147,6 +147,7 @@ impl Drop for DescriptorSetPool {
 pub struct ObjectDescriptorSet {
     device: VkDeviceRef,
 
+    /// borrowed from the pipeline
     descriptor_set_layout: DescriptorSetLayout,
     descriptor_set: DescriptorSet,
 }
@@ -183,16 +184,6 @@ impl ObjectDescriptorSet {
                 &descriptor_sets,
                 &[],
             );
-        }
-    }
-}
-
-impl Drop for ObjectDescriptorSet {
-    fn drop(&mut self) {
-        unsafe {
-            self.device
-                .destroy_descriptor_set_layout(self.descriptor_set_layout, None);
-
         }
     }
 }

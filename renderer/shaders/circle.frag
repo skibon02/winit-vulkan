@@ -14,7 +14,7 @@ layout(location = 0) out vec4 outColor;
 void main() {
     float dist_sq = dot(frag_pos, frag_pos);
     float alpha = smoothstep(1.0, 0.0, dist_sq);
-    outColor = vec4(frag_color.rgb, frag_color.a * alpha) * texture(tex, frag_pos);
+    outColor = vec4(frag_color.rgb, frag_color.a * alpha) * texture(tex, frag_pos * 0.5 + 0.5);
 
     if (dist_sq > 1.0) {
         discard;

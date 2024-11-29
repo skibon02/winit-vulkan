@@ -226,7 +226,7 @@ impl AppState {
                 ..
             } => {
                 self.object_group.circle.modify_pos(|mut pos| {
-                    pos[1] += 0.1;
+                    pos[1] -= 0.1;
                     pos
                 });
             }
@@ -240,7 +240,7 @@ impl AppState {
                 ..
             } => {
                 self.object_group.circle.modify_pos(|mut pos| {
-                    pos[1] -= 0.1;
+                    pos[1] += 0.1;
                     pos
                 });
             }

@@ -1,7 +1,7 @@
 use std::ops::Range;
 use crate::layout::types::GlslTypeVariant;
-use crate::state::StateDiff;
-use crate::state::uniform_state::UniformBufferState;
+use crate::state::StateUpdatesBytes;
+use crate::state::uniform::UniformBufferState;
 use crate::vulkan_backend::pipeline::VertexInputDesc;
 
 pub mod types {
@@ -137,8 +137,8 @@ pub trait LayoutInfo : Sized {
     fn to_new_uniform(self) -> UniformBufferState<Self> {
         UniformBufferState::new(self)
     }
-    fn to_state(self) -> StateDiff<Self> {
-        StateDiff::new(self)
+    fn to_state(self) -> StateUpdatesBytes<Self> {
+        StateUpdatesBytes::new(self)
     }
     fn get_attributes_configuration() -> VertexInputDesc {
         let mut builder = VertexInputDesc::new(Self::MEMBERS_META, Self::SIZE);

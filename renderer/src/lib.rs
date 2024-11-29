@@ -4,10 +4,11 @@ use std::sync::{Arc, Mutex, OnceLock};
 pub mod vulkan_backend;
 pub mod util;
 pub mod pipelines;
-pub mod state;
+pub mod collect_state;
 mod object_handles;
 pub mod uniform_buffers;
 pub mod layout;
+pub mod state;
 
 #[cfg(target_os = "android")]
 pub static VM: OnceLock<Arc<Mutex<Option<jni::JavaVM>>>> = OnceLock::new();

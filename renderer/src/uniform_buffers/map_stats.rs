@@ -1,7 +1,7 @@
 use std::mem::offset_of;
 use crate::layout::{LayoutInfo, MemberMeta};
 use crate::layout::types::{float, GlslTypeVariant};
-use crate::state::StateDiff;
+use crate::state::StateUpdatesBytes;
 
 #[derive(Copy, Clone)]
 #[repr(C, align(16))]
@@ -24,7 +24,7 @@ impl LayoutInfo for MapStats {
         },
     ];
 }
-impl StateDiff<MapStats> {
+impl StateUpdatesBytes<MapStats> {
     fn set_r(&mut self, r: f32) {
         unsafe {
             self.modify_field(|s| {

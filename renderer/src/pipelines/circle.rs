@@ -4,12 +4,11 @@ use crate::layout::{LayoutInfo, MemberMeta};
 use crate::layout::types::*;
 use crate::object_handles::{UniformResourceId};
 use crate::pipelines::{PipelineDesc, UniformBindingType, VertexAssembly};
-use crate::state::StateDiff;
-use crate::state::uniform_state::{UniformImageState, UniformBufferState};
+use crate::state::StateUpdatesBytes;
+use crate::state::uniform::{UniformBufferState, UniformImageState};
 use crate::uniform_buffers::map_stats::MapStats;
 use crate::uniform_buffers::time::Time;
 use crate::use_shader;
-use crate::vulkan_backend::pipeline::VertexInputDesc;
 
 
 #[derive(Copy, Clone)]
@@ -39,7 +38,7 @@ impl LayoutInfo for CircleAttributes {
     ];
 }
 
-impl StateDiff<CircleAttributes> {
+impl StateUpdatesBytes<CircleAttributes> {
     pub fn set_color(&mut self, color: [f32; 4]) {
         unsafe {
             self.modify_field(|s| {

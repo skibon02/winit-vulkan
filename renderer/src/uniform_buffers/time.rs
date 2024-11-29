@@ -1,7 +1,7 @@
 use std::mem::offset_of;
 use crate::layout::{LayoutInfo, MemberMeta};
 use crate::layout::types::{uint, GlslTypeVariant};
-use crate::state::StateDiff;
+use crate::state::StateUpdatesBytes;
 
 #[derive(Copy, Clone)]
 #[repr(C, align(16))]
@@ -18,7 +18,7 @@ impl LayoutInfo for Time {
         },
     ];
 }
-impl StateDiff<Time> {
+impl StateUpdatesBytes<Time> {
     fn set_time(&mut self, time: u32) {
         unsafe {
             self.modify_field(|s| {

@@ -1,17 +1,21 @@
 use std::ops::{Deref, DerefMut};
 use smallvec::SmallVec;
+use crate::collect_state::{CollectDrawStateUpdates, StateUpdates};
+use crate::collect_state::object_updates::{ObjectStateWrapper, ObjectUpdatesDesc};
 use crate::layout::LayoutInfo;
 use crate::object_handles::{get_new_object_id, ObjectId, UniformResourceId};
 use crate::pipelines::{ PipelineDesc, PipelineDescWrapper};
-use crate::state::{ObjectStateWrapper, StateDiff};
+use crate::state::StateUpdatesBytes;
 
 pub struct SingleObject<P: PipelineDesc> {
     pipeline_desc: P,
 
-    per_ins_attrib: StateDiff<P::PerInsAttrib>,
+    per_ins_attrib: StateUpdatesBytes<P::PerInsAttrib>,
     image_bindings: SmallVec<[(u32, UniformResourceId); 5]>,
     buffer_bindings: SmallVec<[(u32, UniformResourceId); 5]>,
-    object_id: ObjectId
+    object_id: ObjectId,
+
+    is_first: bool
 }
 impl<P: PipelineDesc> SingleObject<P> {
     pub fn new(attributes: P::PerInsAttrib, uniforms: P::Uniforms<'_>) -> Self {
@@ -22,7 +26,9 @@ impl<P: PipelineDesc> SingleObject<P> {
             per_ins_attrib: attributes.to_state(),
             image_bindings: image_ids,
             buffer_bindings: buffer_ids,
-            object_id
+            object_id,
+
+            is_first: true
         }
     }
 
@@ -47,7 +53,7 @@ impl<P: PipelineDesc> SingleObject<P> {
 }
 
 impl<P: PipelineDesc> Deref for SingleObject<P> {
-    type Target = StateDiff<P::PerInsAttrib>;
+    type Target = StateUpdatesBytes<P::PerInsAttrib>;
 
     fn deref(&self) -> &Self::Target {
         &self.per_ins_attrib
@@ -62,15 +68,23 @@ impl<P: PipelineDesc> DerefMut for SingleObject<P> {
 
 
 // updates
-impl<P: PipelineDesc> CollectObjectUpdates for SingleObject<P> {
-    fn collect_object_updates(&self) -> impl Iterator<Item=(ObjectId, ObjectStateWrapper, fn() -> PipelineDescWrapper)> {
+impl<P: PipelineDesc> CollectDrawStateUpdates for SingleObject<P> {
+    fn collect_object_updates(&self) -> impl Iterator<Item=(ObjectId, StateUpdates<ObjectUpdatesDesc>)> {
         let id = self.id();
-        let pipeline_info = self.get_pipeline_info();
-        self.modified_state().map(|s|
-            (id, s, pipeline_info)
-        ).into_iter()
+
+        if self.is_first {
+            let pipeline_info = self.get_pipeline_info();
+            let s = self.modified_state().unwrap();
+            Some((id, StateUpdates::New((s, pipeline_info)))).into_iter()
+        }
+        else {
+            self.modified_state().map(|s|
+                (id, StateUpdates::Update(s))
+            ).into_iter()
+        }
     }
-    fn clear(&mut self) {
-        self.clear_state();
+    fn clear_updates(&mut self) {
+        self.clear_modified();
+        self.is_first = false;
     }
 }
