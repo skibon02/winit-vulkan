@@ -10,8 +10,6 @@ crate-type=["cdylib", "rlib"]
 simple_logger = "5.0.0"
 log = "0.4.22"
 
-renderer = { path = "../renderer" }
-
 # system
 winit = { version = "0.30.5", features = ["android-native-activity"] }
 
@@ -31,6 +29,11 @@ sparkles-macro = "0.1.4"
 lazy_static = "1.5.0"
 
 
+render = { path = "../render" }
+render-core = { version = "0.1.0", path = "../render-core" }
+smallvec = "1.13.2"
+
+
 [features]
 default = []
-android = ["ndk-sys", "ndk", "android_logger", "renderer/android"]
+android = ["ndk-sys", "ndk", "android_logger", "render/android"]

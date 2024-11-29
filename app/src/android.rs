@@ -8,7 +8,7 @@ use log::info;
 use sparkles_macro::range_event_start;
 use winit::event_loop::{EventLoop, EventLoopBuilder};
 use winit::platform::android::activity::*;
-use renderer::set_android_context;
+use render::set_android_context;
 
 pub fn android_main(app: AndroidApp) -> EventLoop<()> {
     use jni::objects::{JObject, JObjectArray, JValue};

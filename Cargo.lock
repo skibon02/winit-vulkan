@@ -134,8 +134,10 @@ dependencies = [
  "log",
  "ndk",
  "ndk-sys",
- "renderer",
+ "render",
+ "render-core",
  "simple_logger",
+ "smallvec",
  "sparkles",
  "sparkles-macro",
  "thiserror 2.0.1",
@@ -1735,7 +1737,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
 
 [[package]]
-name = "renderer"
+name = "render"
 version = "0.1.0"
 dependencies = [
  "android_logger",
@@ -1748,10 +1750,30 @@ dependencies = [
  "ndk",
  "ndk-sys",
  "raw-window-handle",
+ "render-core",
+ "render-macro",
  "smallvec",
  "sparkles",
  "sparkles-macro",
  "thiserror 2.0.1",
+]
+
+[[package]]
+name = "render-core"
+version = "0.1.0"
+dependencies = [
+ "ash",
+ "smallvec",
+]
+
+[[package]]
+name = "render-macro"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "render-core",
+ "syn",
 ]
 
 [[package]]

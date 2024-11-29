@@ -1,15 +1,16 @@
 use std::ops::Range;
 use crate::layout::types::GlslTypeVariant;
+use crate::pipeline::VertexInputDesc;
 use crate::state::StateUpdatesBytes;
 use crate::state::uniform::UniformBufferState;
-use crate::vulkan_backend::pipeline::VertexInputDesc;
 
 pub mod types {
     use std::mem::MaybeUninit;
     use ash::vk::Format;
 
-    trait GlslType {
+    pub trait GlslType {
         const T: GlslTypeVariant;
+        type Inner;
     }
 
     #[derive(Copy, Clone)]
@@ -17,6 +18,7 @@ pub mod types {
     pub struct vec2<const P: usize>([f32; 2], MaybeUninit<[u32; P]>);
     impl<const P: usize> GlslType for vec2<P> {
         const T: GlslTypeVariant = GlslTypeVariant::Vec2;
+        type Inner = [f32; 2];
     }
     impl<const P: usize> From<[f32; 2]> for vec2<P> {
         fn from(data: [f32; 2]) -> Self {
@@ -34,6 +36,7 @@ pub mod types {
     pub struct vec3<const P: usize>([f32; 3], MaybeUninit<[u32; P]>);
     impl<const P: usize> GlslType for vec3<P> {
         const T: GlslTypeVariant = GlslTypeVariant::Vec3;
+        type Inner = [f32; 3];
     }
     impl<const P: usize> From<[f32; 3]> for vec3<P> {
         fn from(data: [f32; 3]) -> Self {
@@ -51,6 +54,7 @@ pub mod types {
     pub struct vec4<const P: usize>([f32; 4], MaybeUninit<[u32; P]>);
     impl<const P: usize> GlslType for vec4<P> {
         const T: GlslTypeVariant = GlslTypeVariant::Vec4;
+        type Inner = [f32; 4];
     }
     impl<const P: usize> From<[f32; 4]> for vec4<P> {
         fn from(data: [f32; 4]) -> Self {
@@ -69,6 +73,7 @@ pub mod types {
     pub struct float<const P: usize>(f32, MaybeUninit<[u32; P]>);
     impl<const P: usize> GlslType for float<P> {
         const T: GlslTypeVariant = GlslTypeVariant::Float;
+        type Inner = f32;
     }
     impl<const P: usize> From<f32> for float<P> {
         fn from(data: f32) -> Self {
@@ -87,6 +92,7 @@ pub mod types {
     pub struct uint<const P: usize>(u32, MaybeUninit<[u32; P]>);
     impl<const P: usize> GlslType for uint<P> {
         const T: GlslTypeVariant = GlslTypeVariant::Uint;
+        type Inner = u32;
     }
     impl<const P: usize> From<u32> for uint<P> {
         fn from(data: u32) -> Self {
@@ -99,6 +105,7 @@ pub mod types {
         }
     }
 
+    #[derive(Debug, Copy, Clone)]
     pub enum GlslTypeVariant {
         Vec2,
         Vec3,
@@ -107,7 +114,7 @@ pub mod types {
         Uint,
     }
     impl GlslTypeVariant {
-        pub fn get_format(&self) -> Format {
+        pub fn format(&self) -> Format {
             match self {
                 GlslTypeVariant::Vec2 => Format::R32G32_SFLOAT,
                 GlslTypeVariant::Vec3 => Format::R32G32B32_SFLOAT,
@@ -120,13 +127,6 @@ pub mod types {
 
 }
 
-
-pub trait UniformLayout {
-
-}
-pub trait AttributesLayout {
-
-}
 pub trait LayoutInfo : Sized {
     // const LAYOUT: StateLayout;
 
@@ -141,9 +141,7 @@ pub trait LayoutInfo : Sized {
         StateUpdatesBytes::new(self)
     }
     fn get_attributes_configuration() -> VertexInputDesc {
-        let mut builder = VertexInputDesc::new(Self::MEMBERS_META, Self::SIZE);
-
-        builder
+        VertexInputDesc::new(Self::MEMBERS_META, Self::SIZE)
     }
 
     fn as_bytes(&self) -> &[u8] {

@@ -12,11 +12,11 @@ use winit::event::{ElementState, MouseButton};
 #[cfg(target_os = "android")]
 pub use winit::platform::android::activity::AndroidApp;
 use winit::raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
-use renderer::pipelines::circle::CircleAttributes;
-use renderer::state::object_group::ObjectGroup;
-use renderer::vulkan_backend::VulkanBackend;
+use render::vulkan_backend::VulkanBackend;
 
-use renderer::vulkan_backend::config::VulkanRenderConfig;
+use render::vulkan_backend::config::VulkanRenderConfig;
+use crate::scene::circle::CircleAttributesExt;
+use crate::scene::Scene;
 
 #[cfg(target_os = "android")]
 pub fn run_android(app: AndroidApp) {
@@ -101,7 +101,7 @@ pub struct AppState {
 
     rendering_active: bool,
 
-    object_group: ObjectGroup,
+    scene: Scene,
 }
 
 pub enum AppResult {
@@ -120,9 +120,9 @@ impl AppState {
         };
         let vulkan_backend = VulkanBackend::new_for_window(raw_window_handle, raw_display_handle, (inner_size.width, inner_size.height), config).unwrap();
 
-        let object_group = ObjectGroup::new();
+        let object_group = Scene::new();
         Self {
-            object_group,
+            scene: object_group,
             app_finished: false,
             prev_touch_event_time: Instant::now(),
 
@@ -152,7 +152,7 @@ impl AppState {
                 event:
                 winit::event::KeyEvent {
                     logical_key: keyboard::Key::Named(NamedKey::GoBack | NamedKey::BrowserBack),
-                    state: winit::event::ElementState::Pressed,
+                    state: ElementState::Pressed,
                     ..
                 },
                 ..
@@ -166,7 +166,7 @@ impl AppState {
                 event:
                 winit::event::KeyEvent {
                     logical_key: keyboard::Key::Named(NamedKey::F11),
-                    state: winit::event::ElementState::Pressed,
+                    state: ElementState::Pressed,
                     ..
                 },
                 ..
@@ -192,12 +192,12 @@ impl AppState {
             WindowEvent::KeyboardInput {
                 event: winit::event::KeyEvent {
                     logical_key: keyboard::Key::Named(NamedKey::ArrowLeft),
-                    state: winit::event::ElementState::Pressed,
+                    state: ElementState::Pressed,
                     ..
                 },
                 ..
             } => {
-                self.object_group.circle.modify_pos(|mut pos| {
+                self.scene.circle.modify_pos(|mut pos| {
                     pos[0] -= 0.1;
                     pos
                 });
@@ -206,12 +206,12 @@ impl AppState {
             WindowEvent::KeyboardInput {
                 event: winit::event::KeyEvent {
                     logical_key: keyboard::Key::Named(NamedKey::ArrowRight),
-                    state: winit::event::ElementState::Pressed,
+                    state: ElementState::Pressed,
                     ..
                 },
                 ..
             } => {
-                self.object_group.circle.modify_pos(|mut pos| {
+                self.scene.circle.modify_pos(|mut pos| {
                     pos[0] += 0.1;
                     pos
                 });
@@ -220,12 +220,12 @@ impl AppState {
             WindowEvent::KeyboardInput {
                 event: winit::event::KeyEvent {
                     logical_key: keyboard::Key::Named(NamedKey::ArrowUp),
-                    state: winit::event::ElementState::Pressed,
+                    state: ElementState::Pressed,
                     ..
                 },
                 ..
             } => {
-                self.object_group.circle.modify_pos(|mut pos| {
+                self.scene.circle.modify_pos(|mut pos| {
                     pos[1] -= 0.1;
                     pos
                 });
@@ -234,12 +234,12 @@ impl AppState {
             WindowEvent::KeyboardInput {
                 event: winit::event::KeyEvent {
                     logical_key: keyboard::Key::Named(NamedKey::ArrowDown),
-                    state: winit::event::ElementState::Pressed,
+                    state: ElementState::Pressed,
                     ..
                 },
                 ..
             } => {
-                self.object_group.circle.modify_pos(|mut pos| {
+                self.scene.circle.modify_pos(|mut pos| {
                     pos[1] += 0.1;
                     pos
                 });
@@ -255,7 +255,7 @@ impl AppState {
                 info!("Elapsed: {:?}", elapsed);
 
 
-                self.object_group.circle.set_pos([
+                self.scene.circle.set_pos([
                         (t.location.x as f32 / self.window.inner_size().width as f32) * 2.0 - 1.0,
                         (t.location.y as f32 / self.window.inner_size().height as f32) * 2.0 - 1.0,
                     ]);
@@ -267,7 +267,7 @@ impl AppState {
                 ..
             } => {
                 info!("Mouse left button pressed!");
-                self.object_group.circle.set_color([
+                self.scene.circle.set_color([
                     0.5 + 0.5 * (self.start_time.elapsed().as_millis() as f32 / 1000.0).sin(),
                     0.5 + 0.5 * (self.start_time.elapsed().as_millis() as f32 / 1000.0).cos(),
                     0.5 + 0.5 * (self.start_time.elapsed().as_millis() as f32 / 1000.0).sin(),
@@ -286,7 +286,7 @@ impl AppState {
                 // });
                 let g = range_event_start!("[APP] Redraw requested");
                 if !self.app_finished && self.rendering_active {
-                    self.vulkan_backend.render(&mut self.object_group)?;
+                    self.vulkan_backend.render(&mut self.scene)?;
 
                     self.frame_cnt += 1;
                     if self.last_sec.elapsed().as_secs() >= 1 {

@@ -1,10 +1,10 @@
+pub mod uniform_updates;
+pub mod object_updates;
+pub mod single_object;
+
 use std::iter;
 use crate::collect_state::object_updates::ObjectUpdatesDesc;
 use crate::collect_state::uniform_updates::{UniformBufferUpdatesDesc, UniformImageUpdatesDesc};
-use crate::layout::LayoutInfo;
-
-pub mod uniform_updates;
-pub mod object_updates;
 
 pub trait UpdatesDesc {
     type ID;

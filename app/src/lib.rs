@@ -2,6 +2,7 @@
 pub mod android;
 
 pub mod winit;
+pub mod scene;
 
 #[cfg(target_os = "android")]
 #[no_mangle]

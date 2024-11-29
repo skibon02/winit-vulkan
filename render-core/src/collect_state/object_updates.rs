@@ -1,7 +1,7 @@
 use smallvec::SmallVec;
 use crate::collect_state::UpdatesDesc;
 use crate::object_handles::{ObjectId, UniformResourceId};
-use crate::pipelines::PipelineDescWrapper;
+use crate::pipeline::PipelineDescWrapper;
 
 #[derive(Debug)]
 pub struct ObjectStateWrapper<'a> {

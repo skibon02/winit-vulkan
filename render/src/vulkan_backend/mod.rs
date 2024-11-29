@@ -17,9 +17,8 @@ use ash::vk::{
     PipelineBindPoint, PrimitiveTopology, Queue, RenderPassBeginInfo, Semaphore,
 };
 
-use crate::use_shader;
 use crate::vulkan_backend::descriptor_sets::ObjectDescriptorSet;
-use crate::vulkan_backend::pipeline::{VertexInputDesc, VulkanPipeline};
+use crate::vulkan_backend::pipeline::{VulkanPipeline};
 use crate::vulkan_backend::render_pass::RenderPassResources;
 use crate::vulkan_backend::resource_manager::{BufferResource, ResourceManager};
 use crate::vulkan_backend::wrappers::capabilities_checker::CapabilitiesChecker;
@@ -32,7 +31,7 @@ use sparkles_macro::{instant_event, range_event_start};
 use std::array::from_fn;
 use std::ffi::{c_char, CString};
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
-use crate::collect_state::CollectDrawStateUpdates;
+use render_core::collect_state::CollectDrawStateUpdates;
 use crate::vulkan_backend::config::VulkanRenderConfig;
 use crate::vulkan_backend::object_resource_pool::ObjectResourcePool;
 

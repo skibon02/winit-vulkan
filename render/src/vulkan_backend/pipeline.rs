@@ -1,11 +1,18 @@
 use std::ffi::CStr;
 use ash::vk;
-use ash::vk::{ColorComponentFlags, CompareOp, CullModeFlags, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorType, DynamicState, Format, GraphicsPipelineCreateInfo, Pipeline, PipelineCache, PipelineCacheCreateInfo, PipelineColorBlendAttachmentState, PipelineColorBlendStateCreateInfo, PipelineDepthStencilStateCreateInfo, PipelineDynamicStateCreateInfo, PipelineInputAssemblyStateCreateInfo, PipelineLayout, PipelineLayoutCreateInfo, PipelineMultisampleStateCreateInfo, PipelineRasterizationStateCreateInfo, PipelineShaderStageCreateInfo, PipelineVertexInputStateCreateInfo, PipelineViewportStateCreateInfo, PrimitiveTopology, SampleCountFlags, ShaderModuleCreateInfo, ShaderStageFlags, VertexInputAttributeDescription, VertexInputBindingDescription};
+use ash::vk::{ColorComponentFlags, CompareOp, CullModeFlags, DescriptorSetLayout, DescriptorSetLayoutBinding,
+              DescriptorType, DynamicState, Format, GraphicsPipelineCreateInfo, Pipeline, PipelineCache,
+              PipelineCacheCreateInfo, PipelineColorBlendAttachmentState, PipelineColorBlendStateCreateInfo,
+              PipelineDepthStencilStateCreateInfo, PipelineDynamicStateCreateInfo, PipelineInputAssemblyStateCreateInfo,
+              PipelineLayout, PipelineLayoutCreateInfo, PipelineMultisampleStateCreateInfo, PipelineRasterizationStateCreateInfo,
+              PipelineShaderStageCreateInfo, PipelineVertexInputStateCreateInfo, PipelineViewportStateCreateInfo, PrimitiveTopology,
+              SampleCountFlags, ShaderModuleCreateInfo, ShaderStageFlags, VertexInputAttributeDescription, VertexInputBindingDescription, FALSE};
 use log::info;
 use smallvec::{smallvec, SmallVec};
 use sparkles_macro::range_event_start;
-use crate::layout::MemberMeta;
-use crate::pipelines::{PipelineDescWrapper, UniformBindingType};
+use render_core::layout::MemberMeta;
+use render_core::layout::types::GlslTypeVariant;
+use render_core::pipeline::{PipelineDescWrapper, UniformBindingType, VertexAssembly};
 use crate::vulkan_backend::render_pass::RenderPassWrapper;
 use crate::vulkan_backend::wrappers::device::VkDeviceRef;
 
@@ -15,53 +22,6 @@ pub struct VulkanPipeline {
     pipeline_layout: PipelineLayout,
     pipeline_cache: PipelineCache,
     descriptor_set_layout: DescriptorSetLayout,
-}
-
-#[macro_export]
-macro_rules! use_shader {
-    ($name:expr) => {
-        (
-            include_bytes!(concat!("../../shaders/compiled/", $name, "_vert.spv")),
-            include_bytes!(concat!("../../shaders/compiled/", $name, "_frag.spv"))
-        )
-    };
-}
-
-#[derive(Debug, Clone)]
-pub struct VertexInputDesc {
-    attrib_desc: SmallVec<[VertexInputAttributeDescription; 1]>,
-    binding_desc: SmallVec<[VertexInputBindingDescription; 1]>,
-    last_location: usize,
-}
-
-/// Use single binding for now
-impl VertexInputDesc {
-    pub fn new(members_meta: &'static [MemberMeta], size: usize) -> Self {
-
-        let binding_desc = smallvec![VertexInputBindingDescription::default()
-                .binding(0)
-                .input_rate(vk::VertexInputRate::INSTANCE)
-                .stride(size as u32)];
-
-        let attrib_desc = members_meta.iter().enumerate().map(|(i, member)| {
-            VertexInputAttributeDescription::default()
-                .binding(0)
-                .format(member.ty.get_format())
-                .offset(member.range.start as u32)
-                .location(i as u32)
-        }).collect::<SmallVec<_>>();
-        Self {
-            attrib_desc,
-            binding_desc,
-            last_location: 0,
-        }
-    }
-
-    pub fn get_input_state_create_info(&mut self) -> PipelineVertexInputStateCreateInfo {
-        PipelineVertexInputStateCreateInfo::default()
-            .vertex_attribute_descriptions(&self.attrib_desc)
-            .vertex_binding_descriptions(&self.binding_desc)
-    }
 }
 
 impl VulkanPipeline {
@@ -127,7 +87,7 @@ impl VulkanPipeline {
         let dynamic_state = PipelineDynamicStateCreateInfo::default()
             .dynamic_states(&[DynamicState::VIEWPORT, DynamicState::SCISSOR]);
 
-        let input_assembly = pipeline_desc.vertex_assembly.get_assembly_create_info();
+        let input_assembly = get_assembly_create_info(&pipeline_desc.vertex_assembly);
         let vertex_input = pipeline_desc.attributes.get_input_state_create_info();
 
         let rast_info = PipelineRasterizationStateCreateInfo::default()
@@ -192,6 +152,21 @@ impl VulkanPipeline {
     }
     pub fn get_descriptor_set_layout(&self) -> DescriptorSetLayout {
         self.descriptor_set_layout
+    }
+}
+
+fn get_assembly_create_info(assembly: &VertexAssembly) -> PipelineInputAssemblyStateCreateInfo {
+    match assembly {
+        VertexAssembly::TriangleStrip => PipelineInputAssemblyStateCreateInfo {
+            topology: PrimitiveTopology::TRIANGLE_STRIP,
+            primitive_restart_enable: FALSE,
+            ..Default::default()
+        },
+        VertexAssembly::TriangleList => PipelineInputAssemblyStateCreateInfo {
+            topology: PrimitiveTopology::TRIANGLE_LIST,
+            primitive_restart_enable: FALSE,
+            ..Default::default()
+        },
     }
 }
 

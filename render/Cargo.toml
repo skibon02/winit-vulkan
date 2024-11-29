@@ -1,5 +1,5 @@
 [package]
-name = "renderer"
+name = "render"
 version = "0.1.0"
 edition = "2021"
 
@@ -26,6 +26,9 @@ sparkles-macro = "0.1.4"
 image = "0.25.2"
 raw-window-handle = { version = "0.6.2", features = ["std", "alloc"] }
 smallvec = { version = "1.13.2", features = ["const_new"] }
+
+render-core = { version = "0.1.0", path = "../render-core" }
+render-macro = { version = "0.1.0", path = "../render-macro" }
 
 [features]
 default = ["validation_layers"]

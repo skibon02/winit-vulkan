@@ -1,10 +1,7 @@
+pub mod uniform;
+
 use std::ops::Range;
 use crate::layout::LayoutInfo;
-
-pub mod uniform;
-pub mod object_group;
-pub mod single_object;
-
 
 pub struct StateUpdatesBytes<T: LayoutInfo> {
     inner: T,

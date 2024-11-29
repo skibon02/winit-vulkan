@@ -1,5 +1,5 @@
 [workspace]
-members = ["app", "renderer"]
+members = ["app", "render", "render-core", "render-macro"]
 resolver = "2"
 
 [profile.release]

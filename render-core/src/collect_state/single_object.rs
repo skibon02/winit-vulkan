@@ -4,7 +4,7 @@ use crate::collect_state::{CollectDrawStateUpdates, StateUpdates};
 use crate::collect_state::object_updates::{ObjectStateWrapper, ObjectUpdatesDesc};
 use crate::layout::LayoutInfo;
 use crate::object_handles::{get_new_object_id, ObjectId, UniformResourceId};
-use crate::pipelines::{ PipelineDesc, PipelineDescWrapper};
+use crate::pipeline::{PipelineDesc, PipelineDescWrapper};
 use crate::state::StateUpdatesBytes;
 
 pub struct SingleObject<P: PipelineDesc> {
