@@ -36,4 +36,4 @@ smallvec = "1.13.2"
 
 [features]
 default = []
-android = ["ndk-sys", "ndk", "android_logger", "render/android"]
+android = ["render/android", "dep:ndk-sys", "dep:ndk", "dep:android_logger"]

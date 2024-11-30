@@ -13,7 +13,7 @@ pub fn get_resource(path: PathBuf) -> anyhow::Result<Vec<u8>> {
     use ndk_sys::AAssetManager_fromJava;
     use std::ptr::NonNull;
     use std::ffi::CString;
-    use crate::{ACTIVITY, VM};
+    use crate::android::{ACTIVITY, VM};
 
     let mut vm_lock = VM.get().unwrap().lock().unwrap();
     let vm = vm_lock.as_mut().unwrap();

@@ -98,7 +98,18 @@ impl VulkanPipeline {
             .viewport_count(1)
             .scissor_count(1);
 
-        let color_blend_attachment = [PipelineColorBlendAttachmentState::default().color_write_mask(ColorComponentFlags::RGBA)];
+        // enable blending
+        let color_blend_attachment =
+            [PipelineColorBlendAttachmentState::default()
+                .color_write_mask(ColorComponentFlags::RGBA)
+                .blend_enable(true)
+                .src_color_blend_factor(vk::BlendFactor::SRC_ALPHA)
+                .dst_color_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
+                .color_blend_op(vk::BlendOp::ADD)
+                .src_alpha_blend_factor(vk::BlendFactor::ONE)
+                .dst_alpha_blend_factor(vk::BlendFactor::ZERO)
+                .alpha_blend_op(vk::BlendOp::ADD)
+            ];
         let color_blend = PipelineColorBlendStateCreateInfo::default()
             .attachments(&color_blend_attachment);
 

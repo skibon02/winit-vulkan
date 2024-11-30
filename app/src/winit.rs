@@ -102,6 +102,9 @@ pub struct AppState {
     rendering_active: bool,
 
     scene: Scene,
+    bg_color: [f32; 3],
+    last_touch_pos: [f32; 2],
+    last_frame_time: Instant
 }
 
 pub enum AppResult {
@@ -134,6 +137,10 @@ impl AppState {
 
             rendering_active: true,
             start_time: Instant::now(),
+            bg_color: [0.0, 0.0, 0.0],
+            last_touch_pos: [0.0, 0.0],
+
+            last_frame_time: Instant::now()
         }
     }
 
@@ -199,6 +206,7 @@ impl AppState {
             } => {
                 self.scene.circle.modify_pos(|mut pos| {
                     pos[0] -= 0.1;
+                    self.last_touch_pos = pos;
                     pos
                 });
             }
@@ -213,6 +221,7 @@ impl AppState {
             } => {
                 self.scene.circle.modify_pos(|mut pos| {
                     pos[0] += 0.1;
+                    self.last_touch_pos = pos;
                     pos
                 });
             }
@@ -227,6 +236,7 @@ impl AppState {
             } => {
                 self.scene.circle.modify_pos(|mut pos| {
                     pos[1] -= 0.1;
+                    self.last_touch_pos = pos;
                     pos
                 });
             }
@@ -241,6 +251,7 @@ impl AppState {
             } => {
                 self.scene.circle.modify_pos(|mut pos| {
                     pos[1] += 0.1;
+                    self.last_touch_pos = pos;
                     pos
                 });
             }
@@ -254,11 +265,12 @@ impl AppState {
                 self.prev_touch_event_time = now;
                 info!("Elapsed: {:?}", elapsed);
 
-
-                self.scene.circle.set_pos([
-                        (t.location.x as f32 / self.window.inner_size().width as f32) * 2.0 - 1.0,
-                        (t.location.y as f32 / self.window.inner_size().height as f32) * 2.0 - 1.0,
-                    ]);
+                let pos = [
+                    (t.location.x as f32 / self.window.inner_size().width as f32) * 2.0 - 1.0,
+                    (t.location.y as f32 / self.window.inner_size().height as f32) * 2.0 - 1.0,
+                ];
+                self.last_touch_pos = pos;
+                self.scene.circle.set_pos(pos);
             }
 
             WindowEvent::MouseInput {
@@ -267,16 +279,12 @@ impl AppState {
                 ..
             } => {
                 info!("Mouse left button pressed!");
-                self.scene.circle.set_color([
-                    0.5 + 0.5 * (self.start_time.elapsed().as_millis() as f32 / 1000.0).sin(),
-                    0.5 + 0.5 * (self.start_time.elapsed().as_millis() as f32 / 1000.0).cos(),
-                    0.5 + 0.5 * (self.start_time.elapsed().as_millis() as f32 / 1000.0).sin(),
-                    1.0,
-                ]);
+                self.scene.circle.set_pos([0.0, 0.0]);
+                self.last_touch_pos = [0.0, 0.0];
             }
 
             WindowEvent::RedrawRequested => {
-                let now = self.start_time.elapsed().as_millis() as u32;
+                let now = self.start_time.elapsed().as_millis() as f32;
                 // self.object_group.time.update(Time {
                 //     time: now,
                 // });
@@ -286,7 +294,40 @@ impl AppState {
                 // });
                 let g = range_event_start!("[APP] Redraw requested");
                 if !self.app_finished && self.rendering_active {
-                    self.vulkan_backend.render(&mut self.scene)?;
+                    //recalculate bg
+                    let normalized_touch_pos = [
+                        (self.last_touch_pos[0] + 1.0) / 2.0,
+                        (self.last_touch_pos[1] + 1.0) / 2.0,
+                    ];
+
+                    let new_color = [
+                        normalized_touch_pos[0] * 0.6 + normalized_touch_pos[1] * 0.3 + (now / 600.0).sin() * 0.05,
+                        normalized_touch_pos[0] * 0.3 + normalized_touch_pos[1] * 0.3 + (now / 600.0 + 1.0).sin() * 0.05,
+                        normalized_touch_pos[1] * 0.6 + normalized_touch_pos[0] * 0.3 + (now / 600.0 + 2.0).sin() * 0.05,
+                    ];
+
+                    // adjust new_color, depending on color distance
+                    let color_dir = [
+                        new_color[0] - self.bg_color[0],
+                        new_color[1] - self.bg_color[1],
+                        new_color[2] - self.bg_color[2],
+                    ];
+
+                    let elapsed = self.last_frame_time.elapsed().as_secs_f32();
+                    let color_dist = (color_dir[0].powi(2) + color_dir[1].powi(2) + color_dir[2].powi(2)).sqrt();
+                    let color_dist = (color_dist + 0.5) * elapsed * 20.0;
+                    let color_change = [
+                        color_dir[0] * color_dist,
+                        color_dir[1] * color_dist,
+                        color_dir[2] * color_dist,
+                    ];
+
+                    self.bg_color[0] += color_change[0];
+                    self.bg_color[1] += color_change[1];
+                    self.bg_color[2] += color_change[2];
+
+
+                    self.vulkan_backend.render(&mut self.scene, self.bg_color)?;
 
                     self.frame_cnt += 1;
                     if self.last_sec.elapsed().as_secs() >= 1 {
@@ -300,6 +341,7 @@ impl AppState {
                     let g = range_event_start!("[APP] window.request_redraw call");
                     self.window.request_redraw();
                 }
+                self.last_frame_time = Instant::now();
             }
             WindowEvent::Resized(size) => {
                 info!("Resized to {}x{}", size.width, size.height);

@@ -304,7 +304,7 @@ impl VulkanBackend {
         );
     }
 
-    pub fn render(&mut self, draw_state_diff: &mut impl CollectDrawStateUpdates) -> anyhow::Result<()> {
+    pub fn render(&mut self, draw_state_diff: &mut impl CollectDrawStateUpdates, clear_color: [f32; 3]) -> anyhow::Result<()> {
         let g = range_event_start!("[Vulkan] render");
         let frame_index = self.cur_command_buffer;
         self.cur_command_buffer = (frame_index + 1) % self.command_buffers.len();
@@ -351,7 +351,7 @@ impl VulkanBackend {
         // 3) record command buffer (if index was changed)
         let image_index = image_index as usize;
         if self.command_buffer_last_index[frame_index] != Some(image_index) {
-            self.record_draw(cur_command_buffer, image_index);
+            self.record_draw(cur_command_buffer, image_index, clear_color);
             self.command_buffer_last_index[frame_index] = Some(image_index);
         };
 
@@ -402,35 +402,37 @@ impl VulkanBackend {
         Ok(())
     }
 
-    fn record_draw(&mut self, command_buffer: CommandBuffer, image_index: usize) {
+    fn record_draw(&mut self, command_buffer: CommandBuffer, image_index: usize, clear_color: [f32; 3]) {
         let device = &self.device;
         let framebuffer = self.render_pass_resources.framebuffers[image_index];
         let extent = self.swapchain_wrapper.get_extent();
 
         let g = range_event_start!("[Vulkan] Command buffer recording");
         let command_buffer_begin_info = CommandBufferBeginInfo::default();
+        let clear_color = [clear_color[0], clear_color[1], clear_color[2], 1.0];
+        let clear_values = [
+            vk::ClearValue {
+                color: vk::ClearColorValue {
+                    float32: clear_color,
+                },
+            },
+            vk::ClearValue {
+                depth_stencil: vk::ClearDepthStencilValue {
+                    depth: 1.0,
+                    stencil: 0,
+                },
+            },
+            vk::ClearValue {
+                color: vk::ClearColorValue {
+                    float32: clear_color,
+                },
+            },
+        ];
         let render_pass_begin_info = RenderPassBeginInfo::default()
             .render_pass(*self.render_pass.get_render_pass())
             .framebuffer(framebuffer)
             .render_area(extent.into())
-            .clear_values(&[
-                vk::ClearValue {
-                    color: vk::ClearColorValue {
-                        float32: [0.8, 0.4, 0.7, 1.0],
-                    },
-                },
-                vk::ClearValue {
-                    depth_stencil: vk::ClearDepthStencilValue {
-                        depth: 1.0,
-                        stencil: 0,
-                    },
-                },
-                vk::ClearValue {
-                    color: vk::ClearColorValue {
-                        float32: [0.8, 0.4, 0.7, 1.0],
-                    },
-                },
-            ]);
+            .clear_values(&clear_values);
 
         let viewport = vk::Viewport::default()
             .width(extent.width as f32)
