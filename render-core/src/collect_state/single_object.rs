@@ -1,31 +1,29 @@
 use std::ops::{Deref, DerefMut};
-use smallvec::SmallVec;
 use crate::collect_state::{CollectDrawStateUpdates, StateUpdates};
-use crate::collect_state::object_updates::{ObjectStateWrapper, ObjectUpdatesDesc};
+use crate::collect_state::buffer_updates::StaticBufferUpdates;
+use crate::collect_state::object_updates::ObjectUpdatesDesc;
 use crate::layout::LayoutInfo;
-use crate::object_handles::{get_new_object_id, ObjectId, UniformResourceId};
-use crate::pipeline::{PipelineDesc, PipelineDescWrapper};
+use crate::object_handles::{get_new_object_id, ObjectId};
+use crate::pipeline::{PipelineDesc, PipelineDescWrapper, UniformBindingsDesc};
 use crate::state::StateUpdatesBytes;
 
 pub struct SingleObject<P: PipelineDesc> {
     pipeline_desc: P,
 
     per_ins_attrib: StateUpdatesBytes<P::PerInsAttrib>,
-    image_bindings: SmallVec<[(u32, UniformResourceId); 5]>,
-    buffer_bindings: SmallVec<[(u32, UniformResourceId); 5]>,
+    uniform_bindings: UniformBindingsDesc,
     object_id: ObjectId,
 
     is_first: bool
 }
 impl<P: PipelineDesc> SingleObject<P> {
     pub fn new(attributes: P::PerInsAttrib, uniforms: P::Uniforms<'_>) -> Self {
-        let (buffer_ids, image_ids) = P::get_uniform_ids(uniforms);
+        let uniform_bindings = P::get_uniform_ids(uniforms);
         let object_id = get_new_object_id();
         Self {
             pipeline_desc: P::default(),
             per_ins_attrib: attributes.to_state(),
-            image_bindings: image_ids,
-            buffer_bindings: buffer_ids,
+            uniform_bindings,
             object_id,
 
             is_first: true
@@ -40,13 +38,11 @@ impl<P: PipelineDesc> SingleObject<P> {
         P::collect
     }
 
-    pub fn modified_state(&self) -> Option<ObjectStateWrapper> {
+    pub fn modified_state(&self) -> Option<StaticBufferUpdates> {
         self.per_ins_attrib.modified_range().map(|a| {
-            ObjectStateWrapper {
-                image_bindings: self.image_bindings.clone(),
-                attributes_data: a.0,
-                data_offset: a.1,
-                buffer_bindings: self.buffer_bindings.clone(),
+            StaticBufferUpdates {
+                modified_bytes: a.0,
+                buffer_offset: a.1,
             }
         })
     }
@@ -75,7 +71,7 @@ impl<P: PipelineDesc> CollectDrawStateUpdates for SingleObject<P> {
         if self.is_first {
             let pipeline_info = self.get_pipeline_info();
             let s = self.modified_state().unwrap();
-            Some((id, StateUpdates::New((s, pipeline_info)))).into_iter()
+            Some((id, StateUpdates::New((s, self.uniform_bindings.clone(), pipeline_info)))).into_iter()
         }
         else {
             self.modified_state().map(|s|

@@ -1,6 +1,7 @@
 use std::ops::{Deref, DerefMut};
 use crate::collect_state::{CollectDrawStateUpdates, StateUpdates};
-use crate::collect_state::uniform_updates::{UniformBufferUpdates, UniformBufferUpdatesDesc, UniformImageUpdatesDesc};
+use crate::collect_state::buffer_updates::StaticBufferUpdates;
+use crate::collect_state::uniform_updates::{UniformBufferUpdatesDesc, UniformImageUpdatesDesc};
 use crate::layout::LayoutInfo;
 use crate::object_handles::{get_new_uniform_id, UniformResourceId};
 use crate::state::StateUpdatesBytes;
@@ -68,14 +69,14 @@ impl<L: LayoutInfo> CollectDrawStateUpdates for UniformBufferState<L> {
     fn collect_uniform_buffer_updates(&self) -> impl Iterator<Item=(UniformResourceId, StateUpdates<UniformBufferUpdatesDesc>)> {
         if self.is_first {
             let r = self.modified_range().unwrap();
-            Some((self.id(), StateUpdates::New(UniformBufferUpdates {
+            Some((self.id(), StateUpdates::New(StaticBufferUpdates {
                 modified_bytes: r.0,
                 buffer_offset: r.1
             }))).into_iter()
         }
         else {
             self.modified_range().map(|r| {
-                (self.id(), StateUpdates::Update(UniformBufferUpdates {
+                (self.id(), StateUpdates::Update(StaticBufferUpdates {
                     modified_bytes: r.0,
                     buffer_offset: r.1
                 }))

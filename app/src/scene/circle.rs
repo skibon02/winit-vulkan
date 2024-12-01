@@ -4,7 +4,7 @@ use render::define_layout;
 use render_core::layout::{LayoutInfo, MemberMeta};
 use render_core::layout::types::*;
 use render_core::object_handles::UniformResourceId;
-use render_core::pipeline::{PipelineDesc, UniformBindingType, VertexAssembly};
+use render_core::pipeline::{PipelineDesc, UniformBindingType, UniformBindingsDesc, VertexAssembly};
 use render_core::state::StateUpdatesBytes;
 use render_core::state::uniform::{UniformBufferState, UniformImageState};
 use render_core::use_shader;
@@ -25,9 +25,12 @@ impl PipelineDesc for CirclePipleine {
     type PerInsAttrib = CircleAttributes;
     type Uniforms<'a> = (&'a UniformBufferState<Time>, &'a UniformBufferState<MapStats>, &'a UniformImageState);
     const SHADERS: (&'static [u8], &'static [u8]) = use_shader!("circle");
-    fn get_uniform_ids(uniforms: Self::Uniforms<'_>) -> (SmallVec<[(u32, UniformResourceId); 5]>, SmallVec<[(u32, UniformResourceId); 5]>) {
+    fn get_uniform_ids(uniforms: Self::Uniforms<'_>) -> UniformBindingsDesc {
         let (time, map_stats, image) = uniforms;
-        (smallvec![(0, time.id()), (1, map_stats.id())], smallvec![(2, image.id())])
+        UniformBindingsDesc {
+            image_bindings: smallvec![(2, image.id())],
+            buffer_bindings: smallvec![(0, time.id()), (1, map_stats.id())],
+        }
     }
     fn get_uniform_bindings() -> SmallVec<[(u32, UniformBindingType); 5]> {
         smallvec![(0, UniformBindingType::UniformBuffer),

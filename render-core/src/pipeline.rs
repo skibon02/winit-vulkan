@@ -16,7 +16,7 @@ pub trait PipelineDesc: Default + 'static {
     type PerInsAttrib: LayoutInfo;
     type Uniforms<'a>;
     const SHADERS: (&'static [u8], &'static [u8]);
-    fn get_uniform_ids(uniforms: Self::Uniforms<'_>) -> (SmallVec<[(u32, UniformResourceId); 5]>, SmallVec<[(u32, UniformResourceId); 5]>);
+    fn get_uniform_ids(uniforms: Self::Uniforms<'_>) -> UniformBindingsDesc;
     fn get_uniform_bindings() -> SmallVec<[(u32, UniformBindingType); 5]>;
     const VERTEX_ASSEMBLY: VertexAssembly;
     const VERTICES_PER_INSTANCE: usize;
@@ -58,6 +58,12 @@ pub struct PipelineDescWrapper {
     pub uniform_bindings: SmallVec<[(u32, UniformBindingType); 5]>,
 }
 
+#[derive(Clone, Debug)]
+pub struct UniformBindingsDesc {
+    pub buffer_bindings: SmallVec<[(u32, UniformResourceId); 5]>,
+    pub image_bindings: SmallVec<[(u32, UniformResourceId); 5]>,
+}
+
 
 
 // Depend on ash for now
@@ -65,7 +71,6 @@ pub struct PipelineDescWrapper {
 pub struct VertexInputDesc {
     attrib_desc: SmallVec<[VertexInputAttributeDescription; 1]>,
     binding_desc: SmallVec<[VertexInputBindingDescription; 1]>,
-    last_location: usize,
 }
 
 /// Use single binding for now
@@ -87,7 +92,6 @@ impl VertexInputDesc {
         Self {
             attrib_desc,
             binding_desc,
-            last_location: 0,
         }
     }
 

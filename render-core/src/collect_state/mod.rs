@@ -1,6 +1,7 @@
 pub mod uniform_updates;
 pub mod object_updates;
 pub mod single_object;
+pub mod buffer_updates;
 
 use std::iter;
 use crate::collect_state::object_updates::ObjectUpdatesDesc;

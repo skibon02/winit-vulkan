@@ -7,7 +7,7 @@ use ash::vk::{BufferUsageFlags, DeviceSize, Extent2D, ImageTiling, ImageView, Pi
 use log::info;
 use smallvec::SmallVec;
 use render_core::collect_state::{CollectDrawStateUpdates, StateUpdates};
-use render_core::collect_state::uniform_updates::UniformBufferUpdates;
+use render_core::collect_state::buffer_updates::StaticBufferUpdates;
 use render_core::object_handles::{ObjectId, UniformResourceId};
 use crate::util::get_resource;
 use crate::util::image::read_image_from_bytes;
@@ -89,7 +89,7 @@ impl ObjectResourcePool {
         let uniform_updates_iter = draw_state_updates.collect_uniform_buffer_updates();
         for (id, uniform_updates) in uniform_updates_iter {
             match uniform_updates {
-                StateUpdates::New(UniformBufferUpdates { modified_bytes, buffer_offset }) =>
+                StateUpdates::New(StaticBufferUpdates { modified_bytes, buffer_offset }) =>
                 {
                     let entry = self.uniform_buffers.entry(id);
                     let Entry::Vacant(entry) = entry else {
@@ -106,7 +106,7 @@ impl ObjectResourcePool {
                     info!("Updating uniform buffer with id: {}", id);
                     resource_manager.fill_buffer(*entry, &modified_bytes, buffer_offset);
                 }
-                StateUpdates::Update(UniformBufferUpdates { modified_bytes, buffer_offset }) =>
+                StateUpdates::Update(StaticBufferUpdates { modified_bytes, buffer_offset }) =>
                 {
                     info!("Updating uniform buffer with id: {}.", id);
                     let entry = self.uniform_buffers.get(&id).expect("Renderer update: uniform buffer does not exist");
@@ -143,7 +143,7 @@ impl ObjectResourcePool {
         let objects_updates_iter = draw_state_updates.collect_object_updates();
         for (id, object_updates) in objects_updates_iter {
             match object_updates {
-                StateUpdates::New((obj_state, pipeline_desc)) => {
+                StateUpdates::New((obj_state, uniform_bindings, pipeline_desc)) => {
                     let entry = self.objects.entry(id);
                     let Entry::Vacant(entry) = entry else {
                         panic!("Renderer update: object already exists");
@@ -165,15 +165,15 @@ impl ObjectResourcePool {
 
                         let descriptor_set = ObjectDescriptorSet::new(self.device.clone(),
                               &mut self.descriptor_set_pool, pipeline_entry.get_descriptor_set_layout(),
-                              obj_state.buffer_bindings.iter().map(|(binding, buffer_id)| {
+                              uniform_bindings.buffer_bindings.iter().map(|(binding, buffer_id)| {
                                   (*binding, *self.uniform_buffers.get(buffer_id).unwrap())
                               }),
-                              obj_state.image_bindings.iter().map(|(binding, image_id)| {
+                              uniform_bindings.image_bindings.iter().map(|(binding, image_id)| {
                                   (*binding, self.image_resources.get(image_id).unwrap())
                               }));
 
                         // create vertex buffer for per-instance attributes
-                        let vertex_data = obj_state.attributes_data;
+                        let vertex_data = obj_state.modified_bytes;
                         let vertex_buffer_per_ins = resource_manager.create_buffer(
                             vertex_data.len() as DeviceSize,
                             BufferUsageFlags::VERTEX_BUFFER,
@@ -193,16 +193,16 @@ impl ObjectResourcePool {
                     info!("Updating object with id: {}. State: {:?}", id, obj_state);
 
                     // update per-instance attributes
-                    let vertex_data = obj_state.attributes_data;
-                    resource_manager.fill_buffer(entry.vertex_buffer_per_ins, &vertex_data, obj_state.data_offset);
+                    let vertex_data = obj_state.modified_bytes;
+                    resource_manager.fill_buffer(entry.vertex_buffer_per_ins, &vertex_data, obj_state.buffer_offset);
                 }
                 StateUpdates::Update(obj_state) => {
                     info!("Updating object with id: {}. State: {:?}", id, obj_state);
 
                     // update per-instance attributes
                     let entry = self.objects.get_mut(&id).expect("Renderer update: object does not exist");
-                    let vertex_data = obj_state.attributes_data;
-                    resource_manager.fill_buffer(entry.vertex_buffer_per_ins, &vertex_data, obj_state.data_offset);
+                    let vertex_data = obj_state.modified_bytes;
+                    resource_manager.fill_buffer(entry.vertex_buffer_per_ins, &vertex_data, obj_state.buffer_offset);
                 }
                 StateUpdates::Destroy => {
                     unimplemented!("Renderer update: object destroy is not implemented");

@@ -24,6 +24,8 @@ impl<T: LayoutInfo> StateUpdatesBytes<T> {
         self.modified = Some(0..T::SIZE);
     }
 
+
+    /// safety: Not intended to use from user code!
     pub unsafe fn modify_field<F>(&mut self, f: F)
     where F: FnOnce(&mut T) -> Range<usize> {
         let range = f(&mut self.inner);

@@ -1,16 +1,12 @@
+use crate::collect_state::buffer_updates::StaticBufferUpdates;
 use crate::collect_state::UpdatesDesc;
 use crate::object_handles::UniformResourceId;
-
-pub struct UniformBufferUpdates<'a> {
-    pub modified_bytes: &'a [u8],
-    pub buffer_offset: usize
-}
 
 pub struct UniformBufferUpdatesDesc;
 impl UpdatesDesc for UniformBufferUpdatesDesc {
     type ID = UniformResourceId;
-    type New<'a> = UniformBufferUpdates<'a>;
-    type Update<'a> = UniformBufferUpdates<'a>;
+    type New<'a> = StaticBufferUpdates<'a>;
+    type Update<'a> = StaticBufferUpdates<'a>;
 }
 
 pub struct UniformImageUpdatesDesc;
