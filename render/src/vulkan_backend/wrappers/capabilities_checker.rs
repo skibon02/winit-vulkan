@@ -13,7 +13,9 @@ use crate::vulkan_backend::wrappers::instance::{VkInstance, VkInstanceRef};
 pub struct CapabilitiesChecker {
     activated_layers: BTreeSet<String>,
     activated_instance_extensions: BTreeSet<String>,
-    activated_device_extensions: BTreeSet<String>
+    activated_device_extensions: BTreeSet<String>,
+
+    portability_enabled: bool,
 }
 
 impl CapabilitiesChecker {
@@ -21,7 +23,9 @@ impl CapabilitiesChecker {
         CapabilitiesChecker{
             activated_layers: BTreeSet::new(),
             activated_instance_extensions: BTreeSet::new(),
-            activated_device_extensions: BTreeSet::new()
+            activated_device_extensions: BTreeSet::new(),
+
+            portability_enabled: false,
         }
     }
 
@@ -81,20 +85,19 @@ impl CapabilitiesChecker {
 
         let mut create_info = InstanceCreateInfo::default()
             .application_info(app_info)
-            .enabled_layer_names(&required_layers)
-            .enabled_extension_names(&required_extensions)
             .push_next(debug_utils_info);
 
         // check if KHR_portability_enumeration supported
         if cfg!(feature="portability_subset") {
             if !supported_extensions.iter().any(|ext| unsafe {CStr::from_ptr(ext.extension_name.as_ptr())} == ash::khr::portability_enumeration::NAME) {
-                warn!("VK_KHR_portability_subset is not supported!");
+                warn!("VK_KHR_portability_enumeration is not supported!");
             }
             else {
-                info!("VK_KHR_portability_subset is supported!");
+                info!("VK_KHR_portability_enumeration is supported!");
                 filtered_extensions.push(ash::khr::portability_enumeration::NAME.as_ptr());
 
                 create_info.flags |= vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR;
+                self.portability_enabled = true;
             }
         }
 
@@ -122,7 +125,7 @@ impl CapabilitiesChecker {
 
         let supported_extensions = unsafe { instance.enumerate_device_extension_properties(physical_device)? };
 
-        let filtered_extensions: Vec<_> = requested_extensions.iter().filter(|e| {
+        let mut filtered_extensions: Vec<_> = requested_extensions.iter().filter(|e| {
             let name: &str = e.to_str().unwrap();
             let supported = supported_extensions.iter().find(|supported_extension| {
                 let supported_e_name_bytes = supported_extension.extension_name;
@@ -137,6 +140,17 @@ impl CapabilitiesChecker {
             warn!("Device extension {name} is not supported!");
             false
         }).map(|layer| layer.as_ptr()).collect();
+
+        if self.portability_enabled {
+            // add portability_subset if it is supported
+            if !supported_extensions.iter().any(|ext| unsafe {CStr::from_ptr(ext.extension_name.as_ptr())} == ash::khr::portability_subset::NAME) {
+                warn!("VK_KHR_portability_subset is not supported!");
+            }
+            else {
+                info!("VK_KHR_portability_subset is supported!");
+                filtered_extensions.push(ash::khr::portability_subset::NAME.as_ptr());
+            }
+        }
 
         create_info.enabled_extension_count = filtered_extensions.len() as u32;
         create_info.pp_enabled_extension_names = filtered_extensions.as_ptr();
