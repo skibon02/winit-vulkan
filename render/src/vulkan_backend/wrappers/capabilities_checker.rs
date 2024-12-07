@@ -149,6 +149,8 @@ impl CapabilitiesChecker {
             else {
                 info!("VK_KHR_portability_subset is supported!");
                 filtered_extensions.push(ash::khr::portability_subset::NAME.as_ptr());
+                // we depend on VK_KHR_get_physical_device_properties2 as well
+                filtered_extensions.push(ash::khr::get_physical_device_properties2::NAME.as_ptr());
             }
         }
 
