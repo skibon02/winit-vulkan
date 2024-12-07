@@ -53,6 +53,8 @@ impl ApplicationHandler for WinitApp {
             .create_window(WindowAttributes::default().with_title("DAMNDASHIE"))
             .unwrap();
 
+        window.request_redraw();
+
         let app_state = AppState::new_winit(window);
         self.app_state = Some(app_state);
     }
@@ -199,7 +201,7 @@ impl AppState {
             WindowEvent::KeyboardInput {
                 event: winit::event::KeyEvent {
                     logical_key: keyboard::Key::Named(NamedKey::ArrowLeft),
-                    state: ElementState::Pressed,
+                    state: ElementState::Released,
                     ..
                 },
                 ..
@@ -214,7 +216,7 @@ impl AppState {
             WindowEvent::KeyboardInput {
                 event: winit::event::KeyEvent {
                     logical_key: keyboard::Key::Named(NamedKey::ArrowRight),
-                    state: ElementState::Pressed,
+                    state: ElementState::Released,
                     ..
                 },
                 ..
@@ -229,7 +231,7 @@ impl AppState {
             WindowEvent::KeyboardInput {
                 event: winit::event::KeyEvent {
                     logical_key: keyboard::Key::Named(NamedKey::ArrowUp),
-                    state: ElementState::Pressed,
+                    state: ElementState::Released,
                     ..
                 },
                 ..
@@ -244,7 +246,7 @@ impl AppState {
             WindowEvent::KeyboardInput {
                 event: winit::event::KeyEvent {
                     logical_key: keyboard::Key::Named(NamedKey::ArrowDown),
-                    state: ElementState::Pressed,
+                    state: ElementState::Released,
                     ..
                 },
                 ..
