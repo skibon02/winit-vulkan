@@ -89,15 +89,17 @@ impl CapabilitiesChecker {
 
         // check if KHR_portability_enumeration supported
         if cfg!(feature="portability_subset") {
-            if !supported_extensions.iter().any(|ext| unsafe {CStr::from_ptr(ext.extension_name.as_ptr())} == ash::khr::portability_enumeration::NAME) {
-                warn!("VK_KHR_portability_enumeration is not supported!");
-            }
-            else {
-                info!("VK_KHR_portability_enumeration is supported!");
+            if supported_extensions.iter().any(|ext| unsafe {CStr::from_ptr(ext.extension_name.as_ptr())} == ash::khr::portability_enumeration::NAME) ||
+                supported_extensions.iter().any(|ext| unsafe {CStr::from_ptr(ext.extension_name.as_ptr())} == ash::khr::get_physical_device_properties2::NAME){
+                info!("VK_KHR_portability_enumeration and get_physical_device_properties2 are supported!");
                 filtered_extensions.push(ash::khr::portability_enumeration::NAME.as_ptr());
+                filtered_extensions.push(ash::khr::get_physical_device_properties2::NAME.as_ptr());
 
                 create_info.flags |= vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR;
                 self.portability_enabled = true;
+            }
+            else {
+                warn!("VK_KHR_portability_enumeration is not supported!");
             }
         }
 
@@ -149,8 +151,6 @@ impl CapabilitiesChecker {
             else {
                 info!("VK_KHR_portability_subset is supported!");
                 filtered_extensions.push(ash::khr::portability_subset::NAME.as_ptr());
-                // we depend on VK_KHR_get_physical_device_properties2 as well
-                filtered_extensions.push(ash::khr::get_physical_device_properties2::NAME.as_ptr());
             }
         }
 
