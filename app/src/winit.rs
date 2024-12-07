@@ -296,7 +296,7 @@ impl AppState {
                 // });
                 let g = range_event_start!("[APP] Redraw requested");
                 if !self.app_finished && self.rendering_active {
-                    info!("Begin rendering ...");
+                    // info!("Begin rendering ...");
                     //recalculate bg
                     let normalized_touch_pos = [
                         (self.last_touch_pos[0] + 1.0) / 2.0,
@@ -343,7 +343,7 @@ impl AppState {
                     }
                     let g = range_event_start!("[APP] window.request_redraw call");
                     self.window.request_redraw();
-                    info!("Finish rendering");
+                    // info!("Finish rendering");
                 }
                 self.last_frame_time = Instant::now();
             }
@@ -360,7 +360,8 @@ impl AppState {
                     self.rendering_active = true;
                 }
             }
-            _ => info!("new window event: {:?}", evt),
+            // _ => info!("new window event: {:?}", evt),
+            _ => {}
         }
 
         Ok(())
