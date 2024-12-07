@@ -89,29 +89,28 @@ impl VulkanBackend {
         if cfg!(feature = "validation_layers") {
             instance_layers.push(CString::new("VK_LAYER_KHRONOS_validation")?);
         }
-        let instance_layers_refs: Vec<*const c_char> =
+        let mut instance_layers_refs: Vec<*const c_char> =
             instance_layers.iter().map(|l| l.as_ptr()).collect();
 
         //define desired extensions
         // 1 Debug utils
         // 2,3 Required extensions for surface support (platform_specific surface + general surface)
+        // 4 Portability enumeration (for moltenvk)
         let surface_required_extensions =
             ash_window::enumerate_required_extensions(display_handle)?;
         let mut instance_extensions: Vec<*const c_char> = surface_required_extensions.to_vec();
         instance_extensions.push(ash::ext::debug_utils::NAME.as_ptr());
 
-        let mut debug_utils_messenger_info = VkDebugUtils::get_messenger_create_info();
-        let mut create_info = vk::InstanceCreateInfo::default()
-            .application_info(&app_info)
-            .enabled_layer_names(&instance_layers_refs)
-            .enabled_extension_names(&instance_extensions)
-            .push_next(&mut debug_utils_messenger_info);
+        let desired_extensions = vec![ash::khr::portability_enumeration::NAME.as_ptr()];
 
+        let mut debug_utils_messenger_info = VkDebugUtils::get_messenger_create_info();
+        
         let mut caps_checker = CapabilitiesChecker::new();
 
         // caps_checker will check requested layers and extensions and enable only the
         // supported ones, which can be requested later
-        let instance = caps_checker.create_instance(&mut create_info)?;
+        let instance = caps_checker.create_instance(&app_info, &mut instance_layers_refs,
+                                        &mut instance_extensions, &mut debug_utils_messenger_info)?;
 
         let surface = VkSurface::new(instance.clone(), display_handle, window_handle)?;
 

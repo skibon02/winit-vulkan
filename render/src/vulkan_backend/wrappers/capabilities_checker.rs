@@ -1,8 +1,9 @@
 use std::collections::BTreeSet;
-use std::ffi::CStr;
+use std::ffi::{c_char, CStr};
 use std::slice;
 use std::sync::Arc;
 use ash::{vk, Entry};
+use ash::vk::{ApplicationInfo, DebugUtilsMessengerCreateInfoEXT, InstanceCreateInfo};
 use log::{info, warn};
 use sparkles_macro::range_event_start;
 use crate::vulkan_backend::wrappers::device::{VkDevice, VkDeviceRef};
@@ -24,10 +25,13 @@ impl CapabilitiesChecker {
         }
     }
 
-    pub fn create_instance(&mut self, create_info: &mut vk::InstanceCreateInfo) -> anyhow::Result<VkInstanceRef> {
+    pub fn create_instance(&mut self, app_info: &ApplicationInfo,
+           required_layers: &mut Vec<*const c_char>, required_extensions: &mut Vec<*const c_char>,
+            debug_utils_info: &mut DebugUtilsMessengerCreateInfoEXT) -> anyhow::Result<Arc<VkInstance>> {
+
         let g = range_event_start!("[VulkanHelpers] Create instance");
-        let requested_layers = unsafe {slice::from_raw_parts(create_info.pp_enabled_layer_names, create_info.enabled_layer_count as usize)};
-        let requested_layers: Vec<_> = requested_layers.iter()
+
+        let requested_layers: Vec<_> = required_layers.iter()
             .map(|layer| unsafe { CStr::from_ptr(*layer) })
             .collect();
 
@@ -52,14 +56,13 @@ impl CapabilitiesChecker {
             .collect();
 
 
-        let requested_extensions = unsafe {slice::from_raw_parts(create_info.pp_enabled_extension_names, create_info.enabled_extension_count as usize)};
-        let requested_extensions: Vec<_> = requested_extensions.iter()
+        let requested_extensions: Vec<_> = required_extensions.iter()
             .map(|ext| unsafe { CStr::from_ptr(*ext) })
             .collect();
 
         let supported_extensions = unsafe { entry.enumerate_instance_extension_properties(None) }?;
 
-        let filtered_extensions: Vec<_> = requested_extensions.iter().filter(|e| {
+        let mut filtered_extensions: Vec<*const c_char> = requested_extensions.iter().filter(|e| {
             let name: &str = e.to_str().unwrap();
             let supported = supported_extensions.iter().find(|supported_extension| {
                 let supported_e_name_bytes = supported_extension.extension_name;
@@ -75,13 +78,30 @@ impl CapabilitiesChecker {
             false
         }).map(|layer| layer.as_ptr()).collect();
 
-        create_info.enabled_layer_count = filtered_layers.len() as u32;
-        create_info.pp_enabled_layer_names = filtered_layers.as_ptr();
 
-        create_info.enabled_extension_count = filtered_extensions.len() as u32;
-        create_info.pp_enabled_extension_names = filtered_extensions.as_ptr();
+        let mut create_info = InstanceCreateInfo::default()
+            .application_info(app_info)
+            .enabled_layer_names(&required_layers)
+            .enabled_extension_names(&required_extensions)
+            .push_next(debug_utils_info);
 
-        let instance = unsafe {entry.create_instance(create_info, None)}?;
+        // check if KHR_portability_enumeration supported
+        if cfg!(feature="portability_subset") {
+            if !supported_extensions.iter().any(|ext| unsafe {CStr::from_ptr(ext.extension_name.as_ptr())} == ash::khr::portability_enumeration::NAME) {
+                warn!("VK_KHR_portability_subset is not supported!");
+            }
+            else {
+                info!("VK_KHR_portability_subset is supported!");
+                filtered_extensions.push(ash::khr::portability_enumeration::NAME.as_ptr());
+
+                create_info.flags |= vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR;
+            }
+        }
+
+        create_info = create_info.enabled_layer_names(&filtered_layers)
+            .enabled_extension_names(&filtered_extensions);
+
+        let instance = unsafe {entry.create_instance(&create_info, None)}?;
 
         for l in self.activated_layers.iter() {
             info!("Activated layer: {}", l);
