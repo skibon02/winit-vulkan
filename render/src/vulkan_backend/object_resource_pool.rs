@@ -18,6 +18,7 @@ use crate::vulkan_backend::resource_manager::{BufferResource, ResourceManager};
 use crate::vulkan_backend::wrappers::device::VkDeviceRef;
 use crate::vulkan_backend::wrappers::image::imageview_info_for_image;
 
+/// Represented by a single instance attrib buffer and fixed draw count number
 pub struct ObjectDrawState {
     vertex_buffer_per_ins: BufferResource,
     vertex_count: usize,

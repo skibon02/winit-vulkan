@@ -144,6 +144,7 @@ impl Drop for DescriptorSetPool {
 }
 
 
+/// Represents an exact resource bindings (uniforms/images) for a single object
 pub struct ObjectDescriptorSet {
     device: VkDeviceRef,
 
