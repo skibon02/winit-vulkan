@@ -14,21 +14,21 @@ pub trait CollectDrawStateUpdates {
 }
 
 pub enum GraphicsUpdateCmd<'a> {
-    ObjectUpdate2D(ObjectId, ObjectUpdate2DCmd<'a>),
-    UniformBufferUpdate(UniformResourceId, UniformBufferCmd<'a>),
-    ImageUpdate(UniformResourceId, ImageCmd),
+    Object2D(ObjectId, ObjectUpdate2DCmd<'a>),
+    UniformBuffer(UniformResourceId, UniformBufferCmd<'a>),
+    Image(UniformResourceId, ImageCmd),
 }
 
 impl<'a> GraphicsUpdateCmd<'a> {
     pub fn object_update_2d(id: ObjectId, cmd: ObjectUpdate2DCmd<'a>) -> Self {
-        GraphicsUpdateCmd::ObjectUpdate2D(id, cmd)
+        GraphicsUpdateCmd::Object2D(id, cmd)
     }
 
     pub fn uniform_buffer_update(id: UniformResourceId, cmd: UniformBufferCmd<'a>) -> Self {
-        GraphicsUpdateCmd::UniformBufferUpdate(id, cmd)
+        GraphicsUpdateCmd::UniformBuffer(id, cmd)
     }
 
     pub fn image_update(id: UniformResourceId, cmd: ImageCmd) -> Self {
-        GraphicsUpdateCmd::ImageUpdate(id, cmd)
+        GraphicsUpdateCmd::Image(id, cmd)
     }
 }

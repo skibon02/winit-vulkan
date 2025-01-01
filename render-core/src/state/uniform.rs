@@ -101,7 +101,7 @@ impl CollectDrawStateUpdates for UniformImageState {
     fn collect_updates(&self) -> impl Iterator<Item=GraphicsUpdateCmd> {
         if self.is_first {
             let path = self.new_image_path.as_ref().unwrap().as_str();
-            Some(GraphicsUpdateCmd::ImageUpdate(self.id(), ImageCmd::Create(path.to_string()))).into_iter()
+            Some(GraphicsUpdateCmd::Image(self.id(), ImageCmd::Create(path.to_string()))).into_iter()
         }
         else {
             None.into_iter()
