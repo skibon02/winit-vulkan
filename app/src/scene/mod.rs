@@ -1,5 +1,4 @@
 use render::CollectDrawStateUpdates;
-use render_core::collect_state::{UpdatesDesc};
 use render_core::collect_state::single_object::SingleObject;
 use render_core::layout::LayoutInfo;
 use render_core::state::uniform::{UniformBufferState, UniformImageState};
@@ -11,10 +10,14 @@ pub mod circle;
 
 #[derive(CollectDrawStateUpdates)]
 pub struct Scene {
+    // uniforms
     pub time: UniformBufferState<Time>,
     pub map_stats: UniformBufferState<MapStats>,
-    pub circle: SingleObject<CirclePipleine>,
     pub image: UniformImageState,
+    
+    
+    // objects
+    pub circle: SingleObject<CirclePipleine>,
 }
 
 impl Scene {

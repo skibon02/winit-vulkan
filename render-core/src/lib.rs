@@ -8,3 +8,4 @@ pub use layout::types::GlslType;
 pub use collect_state::uniform_updates::UniformBufferCmd;
 pub use collect_state::buffer_updates::{BufferUpdateCmd, BufferUpdateData};
 pub use collect_state::object_updates::ObjectUpdate2DCmd;
+pub use collect_state::GraphicsUpdateCmd;

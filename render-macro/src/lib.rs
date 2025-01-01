@@ -79,11 +79,11 @@ pub fn derive_collect_draw_state_updates(input: TokenStream) -> TokenStream {
 
     let expanded = quote! {
         impl render_core::collect_state::CollectDrawStateUpdates for #name {
-            fn collect_object_updates(&self) -> impl Iterator<Item=(<render_core::ObjectUpdatesDesc as render_core::UpdatesDesc>::ID, render_core::StateUpdates<render_core::ObjectUpdatesDesc>)> {
+            fn collect_updates(&self) -> impl Iterator<Item=render_core::GraphicsUpdateCmd> + '_ {
                 #updates
             }
 
-            fn clear_updates(&mut self) {
+            fn clear_updates(&mut self) { 
                 #clear_updates
             }
         }

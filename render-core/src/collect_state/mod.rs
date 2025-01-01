@@ -3,7 +3,6 @@ pub mod object_updates;
 pub mod single_object;
 pub mod buffer_updates;
 
-use std::iter;
 use crate::object_handles::{ObjectId, UniformResourceId};
 use crate::{ObjectUpdate2DCmd, UniformBufferCmd};
 use crate::collect_state::uniform_updates::ImageCmd;

@@ -9,7 +9,8 @@ use smallvec::SmallVec;
 use render_core::collect_state::{CollectDrawStateUpdates, GraphicsUpdateCmd};
 use render_core::collect_state::buffer_updates::BufferUpdateData;
 use render_core::object_handles::{ObjectId, UniformResourceId};
-use render_core::ObjectUpdate2DCmd;
+use render_core::{BufferUpdateCmd, ObjectUpdate2DCmd, UniformBufferCmd};
+use render_core::collect_state::uniform_updates::ImageCmd;
 use crate::util::get_resource;
 use crate::util::image::read_image_from_bytes;
 use crate::vulkan_backend::descriptor_sets::{DescriptorSetPool, ObjectDescriptorSet};
@@ -91,130 +92,125 @@ impl ObjectResourcePool {
         let updates_iter = draw_state_updates.collect_updates();
         for update_cmd in updates_iter {
             match update_cmd {
-                GraphicsUpdateCmd::ObjectUpdate2D(id, ObjectUpdate2DCmd::Create {
-                    pipeline_desc,
-                    uniform_bindings_desc,
-                    ..
-                }) => {
-                    
-                }
-                StateUpdates::New(BufferUpdateData { modified_bytes, buffer_offset }) =>
-                {
-                    let entry = self.uniform_buffers.entry(id);
-                    let Entry::Vacant(entry) = entry else {
-                        panic!("Renderer update: uniform buffer already exists");
-                    };
-                    let entry = entry.insert({
-                        info!("Creating new uniform buffer with id: {}", id);
-                        let buffer = resource_manager.create_buffer(
-                            modified_bytes.len() as DeviceSize,
-                            BufferUsageFlags::UNIFORM_BUFFER,
-                        );
-                        buffer
-                    });
-                    info!("Updating uniform buffer with id: {}", id);
-                    resource_manager.fill_buffer(*entry, &modified_bytes, buffer_offset);
-                }
-                StateUpdates::Update(BufferUpdateData { modified_bytes, buffer_offset }) =>
-                {
-                    info!("Updating uniform buffer with id: {}.", id);
-                    let entry = self.uniform_buffers.get(&id).expect("Renderer update: uniform buffer does not exist");
-                    resource_manager.fill_buffer(*entry, &modified_bytes, buffer_offset);
-                }
-                StateUpdates::Destroy => {
-                    unimplemented!("Renderer update: uniform buffer destroy is not implemented");
-                }
-            }
-        }
+                GraphicsUpdateCmd::Object2D(id, object_cmd) => match object_cmd {
+                    ObjectUpdate2DCmd::Create {
+                        pipeline_desc,
+                        uniform_bindings_desc: uniform_bindings,
+                        initial_state
+                    } => {
+                        let entry = self.objects.entry(id);
+                        let Entry::Vacant(entry) = entry else {
+                            panic!("Renderer update: object already exists");
+                        };
+                        let entry = entry.insert({
+                            info!("Creating new object with id: {}", id);
+                            let pipeline_desc = pipeline_desc();
+                            let pipeline_entry = self.pipelines.entry(pipeline_desc.id).or_insert_with(|| {
+                                info!("Creating new pipeline with id: {:?}, Desc: {:?}", pipeline_desc.id, &pipeline_desc);
 
-        let uniform_image_updates = draw_state_updates.collect_uniform_image_updates();
-        for (id, image_updates) in uniform_image_updates {
-            match image_updates {
-                StateUpdates::New(path) => {
-                    self.image_resources.entry(id).or_insert_with(|| {
-                        info!("Creating new image resource with id: {}", id);
+                                let pipeline_desc = pipeline_desc.clone();
+                                let pipeline = VulkanPipeline::new(
+                                    self.device.clone(),
+                                    render_pass,
+                                    pipeline_desc,
+                                );
+                                pipeline
+                            });
 
-                        let data = get_resource(Path::join("resources".as_ref(), path)).unwrap();
-                        let (image_data, extent) = read_image_from_bytes(data).unwrap();
-                        info!("Image extent: {:?}", extent);
-                        UniformImage::new(image_data, extent, resource_manager, self.device.clone())
-                    });
-                }
-                StateUpdates::Update(()) => {
-                    unimplemented!("Renderer update: image resource updates are not implemented");
-                }
-                StateUpdates::Destroy => {
-                    unimplemented!("Renderer update: uniform resource destroy is not implemented");
-                }
-            }
-        }
+                            let descriptor_set = ObjectDescriptorSet::new(self.device.clone(),
+                                                                          &mut self.descriptor_set_pool, pipeline_entry.get_descriptor_set_layout(),
+                                                                          uniform_bindings.buffer_bindings.iter().map(|(binding, buffer_id)| {
+                                                                              (*binding, *self.uniform_buffers.get(buffer_id).unwrap())
+                                                                          }),
+                                                                          uniform_bindings.image_bindings.iter().map(|(binding, image_id)| {
+                                                                              (*binding, self.image_resources.get(image_id).unwrap())
+                                                                          }));
 
-        let objects_updates_iter = draw_state_updates.collect_object_updates();
-        for (id, object_updates) in objects_updates_iter {
-            match object_updates {
-                StateUpdates::New((obj_state, uniform_bindings, pipeline_desc)) => {
-                    let entry = self.objects.entry(id);
-                    let Entry::Vacant(entry) = entry else {
-                        panic!("Renderer update: object already exists");
-                    };
-                    let entry = entry.insert({
-                        info!("Creating new object with id: {}", id);
-                        let pipeline_desc = pipeline_desc();
-                        let pipeline_entry = self.pipelines.entry(pipeline_desc.id).or_insert_with(|| {
-                            info!("Creating new pipeline with id: {:?}, Desc: {:?}", pipeline_desc.id, &pipeline_desc);
-
-                            let pipeline_desc = pipeline_desc.clone();
-                            let pipeline = VulkanPipeline::new(
-                                self.device.clone(),
-                                render_pass,
-                                pipeline_desc,
+                            // create vertex buffer for per-instance attributes
+                            let vertex_data = initial_state.modified_bytes;
+                            let vertex_buffer_per_ins = resource_manager.create_buffer(
+                                vertex_data.len() as DeviceSize,
+                                BufferUsageFlags::VERTEX_BUFFER,
                             );
-                            pipeline
+
+                            // for now, it is 1
+                            let instance_count = 1;
+
+                            ObjectDrawState {
+                                vertex_buffer_per_ins,
+                                vertex_count: instance_count * pipeline_desc.vertices_per_instance,
+                                instance_count,
+                                descriptor_set,
+                                pipeline_id: pipeline_desc.id,
+                            }
                         });
 
-                        let descriptor_set = ObjectDescriptorSet::new(self.device.clone(),
-                              &mut self.descriptor_set_pool, pipeline_entry.get_descriptor_set_layout(),
-                              uniform_bindings.buffer_bindings.iter().map(|(binding, buffer_id)| {
-                                  (*binding, *self.uniform_buffers.get(buffer_id).unwrap())
-                              }),
-                              uniform_bindings.image_bindings.iter().map(|(binding, image_id)| {
-                                  (*binding, self.image_resources.get(image_id).unwrap())
-                              }));
+                        info!("Updating object with id: {}. State: {:?}", id, initial_state);
 
-                        // create vertex buffer for per-instance attributes
-                        let vertex_data = obj_state.modified_bytes;
-                        let vertex_buffer_per_ins = resource_manager.create_buffer(
-                            vertex_data.len() as DeviceSize,
-                            BufferUsageFlags::VERTEX_BUFFER,
-                        );
-
-                        // for now, it is 1
-                        let instance_count = 1;
-
-                        ObjectDrawState {
-                            vertex_buffer_per_ins,
-                            vertex_count: instance_count * pipeline_desc.vertices_per_instance,
-                            instance_count,
-                            descriptor_set,
-                            pipeline_id: pipeline_desc.id,
+                        // update per-instance attributes
+                        let vertex_data = initial_state.modified_bytes;
+                        resource_manager.fill_buffer(entry.vertex_buffer_per_ins, &vertex_data, initial_state.buffer_offset);
+                    }
+                    ObjectUpdate2DCmd::AttribUpdate(BufferUpdateData { modified_bytes, buffer_offset }) => {
+                        info!("Updating object with id: {}.", id);
+                        let entry = self.objects.get_mut(&id).expect("Renderer update: object does not exist");
+                        resource_manager.fill_buffer(entry.vertex_buffer_per_ins, &modified_bytes, buffer_offset);
+                    }
+                    ObjectUpdate2DCmd::Destroy => {
+                        unimplemented!("Renderer update: object destroy is not implemented");
+                    }
+                }
+                GraphicsUpdateCmd::UniformBuffer(id, uniform_cmd) => match uniform_cmd {
+                    UniformBufferCmd::Create(BufferUpdateData { modified_bytes, buffer_offset }) => {
+                        let entry = self.uniform_buffers.entry(id);
+                        let Entry::Vacant(entry) = entry else {
+                            panic!("Renderer update: uniform buffer already exists");
+                        };
+                        let entry = entry.insert({
+                            info!("Creating new uniform buffer with id: {}", id);
+                            let buffer = resource_manager.create_buffer(
+                                modified_bytes.len() as DeviceSize,
+                                BufferUsageFlags::UNIFORM_BUFFER,
+                            );
+                            buffer
+                        });
+                        info!("Updating uniform buffer with id: {}", id);
+                        resource_manager.fill_buffer(*entry, &modified_bytes, buffer_offset);
+                    }
+                    UniformBufferCmd::Update(buffer_update) => match buffer_update {
+                        BufferUpdateCmd::Update(BufferUpdateData { modified_bytes, buffer_offset }) => {
+                            info!("Updating uniform buffer with id: {}.", id);
+                            let entry = self.uniform_buffers.get(&id).expect("Renderer update: uniform buffer does not exist");
+                            resource_manager.fill_buffer(*entry, &modified_bytes, buffer_offset);
                         }
-                    });
-                    info!("Updating object with id: {}. State: {:?}", id, obj_state);
-
-                    // update per-instance attributes
-                    let vertex_data = obj_state.modified_bytes;
-                    resource_manager.fill_buffer(entry.vertex_buffer_per_ins, &vertex_data, obj_state.buffer_offset);
+                        BufferUpdateCmd::Resize(new_size) => {
+                            unimplemented!("Renderer update: uniform buffer resize is not implemented");
+                        }
+                        BufferUpdateCmd::Rearrange(copy_ops) => {
+                            unimplemented!("Renderer update: uniform buffer rearrange is not implemented");
+                        }
+                    }
+                    UniformBufferCmd::Destroy => {
+                        unimplemented!("Renderer update: uniform buffer destroy is not implemented");
+                    }
                 }
-                StateUpdates::Update(obj_state) => {
-                    info!("Updating object with id: {}. State: {:?}", id, obj_state);
-
-                    // update per-instance attributes
-                    let entry = self.objects.get_mut(&id).expect("Renderer update: object does not exist");
-                    let vertex_data = obj_state.modified_bytes;
-                    resource_manager.fill_buffer(entry.vertex_buffer_per_ins, &vertex_data, obj_state.buffer_offset);
-                }
-                StateUpdates::Destroy => {
-                    unimplemented!("Renderer update: object destroy is not implemented");
+                GraphicsUpdateCmd::Image(id, image_cmd) => match image_cmd {
+                    ImageCmd::Create(path) => {
+                        let entry = self.image_resources.entry(id);
+                        let Entry::Vacant(entry) = entry else {
+                            panic!("Renderer update: image resource already exists");
+                        };
+                        let entry = entry.insert({
+                            info!("Creating new image resource with id: {}", id);
+                            let data = get_resource(Path::join("resources".as_ref(), path)).unwrap();
+                            let (image_data, extent) = read_image_from_bytes(data).unwrap();
+                            info!("Image extent: {:?}", extent);
+                            UniformImage::new(image_data, extent, resource_manager, self.device.clone())
+                        });
+                    }
+                    ImageCmd::Destroy => {
+                        unimplemented!("Renderer update: uniform resource destroy is not implemented");
+                    }
                 }
             }
         }
