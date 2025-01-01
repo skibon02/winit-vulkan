@@ -1,17 +1,12 @@
-use crate::collect_state::buffer_updates::StaticBufferUpdates;
-use crate::collect_state::UpdatesDesc;
-use crate::object_handles::UniformResourceId;
+use crate::collect_state::buffer_updates::{BufferUpdateCmd, BufferUpdateData};
 
-pub struct UniformBufferUpdatesDesc;
-impl UpdatesDesc for UniformBufferUpdatesDesc {
-    type ID = UniformResourceId;
-    type New<'a> = StaticBufferUpdates<'a>;
-    type Update<'a> = StaticBufferUpdates<'a>;
+pub enum UniformBufferCmd<'a> {
+    Create(BufferUpdateData<'a>),
+    Update(BufferUpdateCmd<'a>),
+    Destroy
 }
 
-pub struct UniformImageUpdatesDesc;
-impl UpdatesDesc for UniformImageUpdatesDesc {
-    type ID = UniformResourceId;
-    type New<'a> = &'a str;
-    type Update<'a> = ();
+pub enum ImageCmd {
+    Create(String),
+    Destroy
 }

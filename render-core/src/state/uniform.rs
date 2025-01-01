@@ -1,10 +1,11 @@
 use std::ops::{Deref, DerefMut};
-use crate::collect_state::{CollectDrawStateUpdates, StateUpdates};
-use crate::collect_state::buffer_updates::StaticBufferUpdates;
-use crate::collect_state::uniform_updates::{UniformBufferUpdatesDesc, UniformImageUpdatesDesc};
+use crate::collect_state::{CollectDrawStateUpdates, GraphicsUpdateCmd};
+use crate::collect_state::buffer_updates::BufferUpdateData;
+use crate::collect_state::uniform_updates::ImageCmd;
 use crate::layout::LayoutInfo;
 use crate::object_handles::{get_new_uniform_id, UniformResourceId};
 use crate::state::StateUpdatesBytes;
+use crate::{BufferUpdateCmd, UniformBufferCmd};
 
 pub struct UniformBufferState<L: LayoutInfo> {
     state: StateUpdatesBytes<L>,
@@ -66,20 +67,26 @@ impl UniformImageState {
 // updates
 
 impl<L: LayoutInfo> CollectDrawStateUpdates for UniformBufferState<L> {
-    fn collect_uniform_buffer_updates(&self) -> impl Iterator<Item=(UniformResourceId, StateUpdates<UniformBufferUpdatesDesc>)> {
+    fn collect_updates(&self) -> impl Iterator<Item=GraphicsUpdateCmd> {
         if self.is_first {
             let r = self.modified_range().unwrap();
-            Some((self.id(), StateUpdates::New(StaticBufferUpdates {
-                modified_bytes: r.0,
-                buffer_offset: r.1
-            }))).into_iter()
+            Some(GraphicsUpdateCmd::uniform_buffer_update(self.id, UniformBufferCmd::Create(
+                BufferUpdateData {
+                    modified_bytes: r.0,
+                    buffer_offset: r.1
+                }
+            ))).into_iter()
         }
         else {
             self.modified_range().map(|r| {
-                (self.id(), StateUpdates::Update(StaticBufferUpdates {
-                    modified_bytes: r.0,
-                    buffer_offset: r.1
-                }))
+                GraphicsUpdateCmd::uniform_buffer_update(self.id, UniformBufferCmd::Update(
+                    BufferUpdateCmd::Update(
+                        BufferUpdateData {
+                            modified_bytes: r.0,
+                            buffer_offset: r.1
+                        }
+                    )
+                ))
             }).into_iter()
         }
     }
@@ -91,10 +98,10 @@ impl<L: LayoutInfo> CollectDrawStateUpdates for UniformBufferState<L> {
 }
 
 impl CollectDrawStateUpdates for UniformImageState {
-    fn collect_uniform_image_updates(&self) -> impl Iterator<Item=(UniformResourceId, StateUpdates<UniformImageUpdatesDesc>)> {
+    fn collect_updates(&self) -> impl Iterator<Item=GraphicsUpdateCmd> {
         if self.is_first {
             let path = self.new_image_path.as_ref().unwrap().as_str();
-            Some((self.id, StateUpdates::New(path))).into_iter()
+            Some(GraphicsUpdateCmd::ImageUpdate(self.id(), ImageCmd::Create(path.to_string()))).into_iter()
         }
         else {
             None.into_iter()

@@ -1,9 +1,9 @@
 use std::ops::{Deref, DerefMut};
-use crate::collect_state::{CollectDrawStateUpdates, StateUpdates};
-use crate::collect_state::buffer_updates::StaticBufferUpdates;
-use crate::collect_state::object_updates::ObjectUpdatesDesc;
+use crate::collect_state::{CollectDrawStateUpdates, GraphicsUpdateCmd};
+use crate::collect_state::buffer_updates::BufferUpdateData;
 use crate::layout::LayoutInfo;
 use crate::object_handles::{get_new_object_id, ObjectId};
+use crate::ObjectUpdate2DCmd;
 use crate::pipeline::{PipelineDesc, PipelineDescWrapper, UniformBindingsDesc};
 use crate::state::StateUpdatesBytes;
 
@@ -38,9 +38,9 @@ impl<P: PipelineDesc> SingleObject<P> {
         P::collect
     }
 
-    pub fn modified_state(&self) -> Option<StaticBufferUpdates> {
+    pub fn modified_state(&self) -> Option<BufferUpdateData> {
         self.per_ins_attrib.modified_range().map(|a| {
-            StaticBufferUpdates {
+            BufferUpdateData {
                 modified_bytes: a.0,
                 buffer_offset: a.1,
             }
@@ -65,17 +65,21 @@ impl<P: PipelineDesc> DerefMut for SingleObject<P> {
 
 // updates
 impl<P: PipelineDesc> CollectDrawStateUpdates for SingleObject<P> {
-    fn collect_object_updates(&self) -> impl Iterator<Item=(ObjectId, StateUpdates<ObjectUpdatesDesc>)> {
+    fn collect_updates(&self) -> impl Iterator<Item=GraphicsUpdateCmd> {
         let id = self.id();
 
         if self.is_first {
             let pipeline_info = self.get_pipeline_info();
             let s = self.modified_state().unwrap();
-            Some((id, StateUpdates::New((s, self.uniform_bindings.clone(), pipeline_info)))).into_iter()
+            Some(GraphicsUpdateCmd::object_update_2d(id, ObjectUpdate2DCmd::Create {
+                pipeline_desc: pipeline_info,
+                uniform_bindings_desc: self.uniform_bindings.clone(),
+                initial_state: s
+            })).into_iter()
         }
         else {
             self.modified_state().map(|s|
-                (id, StateUpdates::Update(s))
+                GraphicsUpdateCmd::object_update_2d(id, ObjectUpdate2DCmd::AttribUpdate(s))
             ).into_iter()
         }
     }

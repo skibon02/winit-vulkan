@@ -27,7 +27,7 @@ impl<T: LayoutInfo> StateUpdatesBytes<T> {
 
     /// safety: Not intended to use from user code!
     pub unsafe fn modify_field<F>(&mut self, f: F)
-    where F: FnOnce(&mut T) -> Range<usize> {
+        where F: FnOnce(&mut T) -> Range<usize> {
         let range = f(&mut self.inner);
         self.merge_range(range);
     }

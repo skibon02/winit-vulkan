@@ -6,9 +6,10 @@ use ash::vk;
 use ash::vk::{BufferUsageFlags, DeviceSize, Extent2D, ImageTiling, ImageView, PipelineBindPoint, PrimitiveTopology, SampleCountFlags};
 use log::info;
 use smallvec::SmallVec;
-use render_core::collect_state::{CollectDrawStateUpdates, StateUpdates};
-use render_core::collect_state::buffer_updates::StaticBufferUpdates;
+use render_core::collect_state::{CollectDrawStateUpdates, GraphicsUpdateCmd};
+use render_core::collect_state::buffer_updates::BufferUpdateData;
 use render_core::object_handles::{ObjectId, UniformResourceId};
+use render_core::ObjectUpdate2DCmd;
 use crate::util::get_resource;
 use crate::util::image::read_image_from_bytes;
 use crate::vulkan_backend::descriptor_sets::{DescriptorSetPool, ObjectDescriptorSet};
@@ -87,10 +88,17 @@ impl ObjectResourcePool {
     pub fn update_objects<'a>(&mut self, resource_manager: &mut ResourceManager,
                               draw_state_updates: &mut impl CollectDrawStateUpdates,
                               render_pass: &RenderPassWrapper) {
-        let uniform_updates_iter = draw_state_updates.collect_uniform_buffer_updates();
-        for (id, uniform_updates) in uniform_updates_iter {
-            match uniform_updates {
-                StateUpdates::New(StaticBufferUpdates { modified_bytes, buffer_offset }) =>
+        let updates_iter = draw_state_updates.collect_updates();
+        for update_cmd in updates_iter {
+            match update_cmd {
+                GraphicsUpdateCmd::ObjectUpdate2D(id, ObjectUpdate2DCmd::Create {
+                    pipeline_desc,
+                    uniform_bindings_desc,
+                    ..
+                }) => {
+                    
+                }
+                StateUpdates::New(BufferUpdateData { modified_bytes, buffer_offset }) =>
                 {
                     let entry = self.uniform_buffers.entry(id);
                     let Entry::Vacant(entry) = entry else {
@@ -107,7 +115,7 @@ impl ObjectResourcePool {
                     info!("Updating uniform buffer with id: {}", id);
                     resource_manager.fill_buffer(*entry, &modified_bytes, buffer_offset);
                 }
-                StateUpdates::Update(StaticBufferUpdates { modified_bytes, buffer_offset }) =>
+                StateUpdates::Update(BufferUpdateData { modified_bytes, buffer_offset }) =>
                 {
                     info!("Updating uniform buffer with id: {}.", id);
                     let entry = self.uniform_buffers.get(&id).expect("Renderer update: uniform buffer does not exist");

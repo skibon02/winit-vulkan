@@ -1,12 +1,12 @@
-use crate::collect_state::buffer_updates::StaticBufferUpdates;
-use crate::collect_state::UpdatesDesc;
-use crate::object_handles::{ObjectId,};
+use crate::collect_state::buffer_updates::BufferUpdateData;
 use crate::pipeline::{PipelineDescWrapper, UniformBindingsDesc};
 
-pub struct ObjectUpdatesDesc;
-
-impl UpdatesDesc for ObjectUpdatesDesc {
-    type ID = ObjectId;
-    type New<'a> = (StaticBufferUpdates<'a>, UniformBindingsDesc, fn() -> PipelineDescWrapper);
-    type Update<'a> = StaticBufferUpdates<'a>;
+pub enum ObjectUpdate2DCmd<'a> {
+    Create {
+        pipeline_desc: fn() -> PipelineDescWrapper,
+        uniform_bindings_desc: UniformBindingsDesc,
+        initial_state: BufferUpdateData<'a>
+    },
+    AttribUpdate(BufferUpdateData<'a>),
+    Destroy
 }
