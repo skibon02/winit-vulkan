@@ -1,8 +1,10 @@
 pub mod uniform;
 
 use std::ops::Range;
+use crate::BufferUpdateData;
 use crate::layout::LayoutInfo;
 
+#[derive(Default)]
 pub struct StateUpdatesBytes<T: LayoutInfo> {
     inner: T,
     modified: Option<Range<usize>>
@@ -36,9 +38,16 @@ impl<T: LayoutInfo> StateUpdatesBytes<T> {
         self.modified = merge_ranges(self.modified.clone(), r);
     }
 
-    pub fn modified_range(&self) -> Option<(&[u8], usize)> {
+    pub fn modified_bytes(&self) -> Option<BufferUpdateData> {
         self.modified.as_ref()
-            .map(|r| (&self.inner.as_bytes()[r.clone()], r.start))
+            .map(|r| {
+                let bytes = &self.inner.as_bytes()[r.clone()];
+                let offset = r.start;
+                BufferUpdateData {
+                    modified_bytes: bytes,
+                    buffer_offset: offset
+                }
+            })
     }
 
     pub fn clear_modified(&mut self) {

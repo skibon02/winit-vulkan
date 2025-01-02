@@ -1,9 +1,8 @@
 use std::ops::{Deref, DerefMut};
 use crate::collect_state::{CollectDrawStateUpdates, GraphicsUpdateCmd};
-use crate::collect_state::buffer_updates::BufferUpdateData;
 use crate::layout::LayoutInfo;
 use crate::object_handles::{get_new_object_id, ObjectId};
-use crate::ObjectUpdate2DCmd;
+use crate::{BufferUpdateCmd, ObjectUpdate2DCmd};
 use crate::pipeline::{PipelineDesc, PipelineDescWrapper, UniformBindingsDesc};
 use crate::state::StateUpdatesBytes;
 
@@ -37,15 +36,6 @@ impl<P: PipelineDesc> SingleObject<P> {
     pub fn get_pipeline_info(&self) -> fn() -> PipelineDescWrapper {
         P::collect
     }
-
-    pub fn modified_state(&self) -> Option<BufferUpdateData> {
-        self.per_ins_attrib.modified_range().map(|a| {
-            BufferUpdateData {
-                modified_bytes: a.0,
-                buffer_offset: a.1,
-            }
-        })
-    }
 }
 
 impl<P: PipelineDesc> Deref for SingleObject<P> {
@@ -70,7 +60,7 @@ impl<P: PipelineDesc> CollectDrawStateUpdates for SingleObject<P> {
 
         if self.is_first {
             let pipeline_info = self.get_pipeline_info();
-            let s = self.modified_state().unwrap();
+            let s = self.per_ins_attrib.modified_bytes().unwrap();
             Some(GraphicsUpdateCmd::object_update_2d(id, ObjectUpdate2DCmd::Create {
                 pipeline_desc: pipeline_info,
                 uniform_bindings_desc: self.uniform_bindings.clone(),
@@ -78,8 +68,8 @@ impl<P: PipelineDesc> CollectDrawStateUpdates for SingleObject<P> {
             })).into_iter()
         }
         else {
-            self.modified_state().map(|s|
-                GraphicsUpdateCmd::object_update_2d(id, ObjectUpdate2DCmd::AttribUpdate(s))
+            self.per_ins_attrib.modified_bytes().map(|s|
+                GraphicsUpdateCmd::object_update_2d(id, ObjectUpdate2DCmd::AttribUpdate(BufferUpdateCmd::Update(s)))
             ).into_iter()
         }
     }

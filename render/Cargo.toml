@@ -30,7 +30,7 @@ render-core = { version = "0.1.0", path = "../render-core" }
 render-macro = { version = "0.1.0", path = "../render-macro" }
 
 [features]
-default = ["validation_layers", "portability_subset"]
+default = ["validation_layers"]
 android = ["dep:ndk-sys", "dep:ndk", "dep:jni"]
 validation_layers = []
 portability_subset = []

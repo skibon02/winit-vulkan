@@ -101,8 +101,6 @@ impl VulkanBackend {
         let mut instance_extensions: Vec<*const c_char> = surface_required_extensions.to_vec();
         instance_extensions.push(ash::ext::debug_utils::NAME.as_ptr());
 
-        let desired_extensions = vec![ash::khr::portability_enumeration::NAME.as_ptr()];
-
         let mut debug_utils_messenger_info = VkDebugUtils::get_messenger_create_info();
         
         let mut caps_checker = CapabilitiesChecker::new();

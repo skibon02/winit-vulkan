@@ -27,9 +27,9 @@ pub struct DescriptorSetPool {
 
 impl DescriptorSetPool {
     pub fn new(device: VkDeviceRef) -> Self {
-        let capacity_sets = 10;
-        let capacity_uniform_buffers = 10;
-        let capacity_image_samplers = 10;
+        let capacity_sets = 50;
+        let capacity_uniform_buffers = 50;
+        let capacity_image_samplers = 50;
 
         let pool_sizes = [
             DescriptorPoolSize::default()
@@ -40,7 +40,8 @@ impl DescriptorSetPool {
                 .ty(DescriptorType::COMBINED_IMAGE_SAMPLER)];
         let desc_pool_info = vk::DescriptorPoolCreateInfo::default()
             .max_sets(capacity_sets)
-            .pool_sizes(&pool_sizes);
+            .pool_sizes(&pool_sizes)
+            .flags(vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET);
 
         let descriptor_pool = unsafe {
             device
@@ -81,11 +82,11 @@ impl DescriptorSetPool {
         self.allocated_uniform_buffers += buffer_bindings.len() as u32;
         self.allocated_image_samplers += image_bindings.len() as u32;
 
-        if self.allocated_sets > self.capacity_sets ||
-            self.allocated_uniform_buffers > self.capacity_uniform_buffers ||
-            self.allocated_image_samplers > self.capacity_image_samplers {
-            panic!("Descriptor set pool exceeded capacity");
-        }
+        // if self.allocated_sets > self.capacity_sets ||
+        //     self.allocated_uniform_buffers > self.capacity_uniform_buffers ||
+        //     self.allocated_image_samplers > self.capacity_image_samplers {
+        //     panic!("Descriptor set pool exceeded capacity");
+        // }
         // Update descriptor set
         let buffer_infos: Vec<_> = buffer_bindings.iter().map(|(_, buffer)| {
             [
@@ -185,6 +186,12 @@ impl ObjectDescriptorSet {
                 &descriptor_sets,
                 &[],
             );
+        }
+    }
+    
+    pub fn destroy(self, descriptor_pool: &mut DescriptorSetPool) {
+        unsafe {
+            self.device.free_descriptor_sets(descriptor_pool.descriptor_pool, &[self.descriptor_set]).unwrap();
         }
     }
 }

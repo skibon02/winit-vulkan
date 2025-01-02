@@ -205,6 +205,21 @@ impl ResourceManager {
 
         res
     }
+    
+    pub fn destroy_buffer(&mut self, buffer: BufferResource) {
+        if let Some(index) = self
+            .buffer_resources
+            .iter()
+            .position(|resource| resource.memory == buffer.memory)
+        {
+            self.buffer_resources.swap_remove(index);
+        }
+
+        unsafe {
+            self.device.free_memory(buffer.memory, None);
+            self.device.destroy_buffer(buffer.buffer, None);
+        }
+    }
 
     pub fn fill_buffer<T: Copy + Debug>(&mut self, resource: BufferResource, data: &[T], offset: usize) {
         //size checktransfer_completed_fence

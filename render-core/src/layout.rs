@@ -104,6 +104,24 @@ pub mod types {
             data.0
         }
     }
+    
+    #[derive(Copy, Clone)]
+    #[repr(C)]
+    pub struct int<const P: usize>(i32, MaybeUninit<[u32; P]>);
+    impl<const P: usize> GlslType for int<P> {
+        const T: GlslTypeVariant = GlslTypeVariant::Int;
+        type Inner = i32;
+    }
+    impl<const P: usize> From<i32> for int<P> {
+        fn from(data: i32) -> Self {
+            int(data, MaybeUninit::uninit())
+        }
+    }
+    impl<const P: usize> From<int<P>> for i32 {
+        fn from(data: int<P>) -> i32 {
+            data.0
+        }
+    }
 
     #[derive(Debug, Copy, Clone)]
     pub enum GlslTypeVariant {
@@ -112,6 +130,7 @@ pub mod types {
         Vec4,
         Float,
         Uint,
+        Int,
     }
     impl GlslTypeVariant {
         pub fn format(&self) -> Format {
@@ -121,6 +140,7 @@ pub mod types {
                 GlslTypeVariant::Vec4 => Format::R32G32B32A32_SFLOAT,
                 GlslTypeVariant::Float => Format::R32_SFLOAT,
                 GlslTypeVariant::Uint => Format::R32_UINT,
+                GlslTypeVariant::Int => Format::R32_SINT,
             }
         }
     }

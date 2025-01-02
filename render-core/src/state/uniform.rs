@@ -69,23 +69,13 @@ impl UniformImageState {
 impl<L: LayoutInfo> CollectDrawStateUpdates for UniformBufferState<L> {
     fn collect_updates(&self) -> impl Iterator<Item=GraphicsUpdateCmd> {
         if self.is_first {
-            let r = self.modified_range().unwrap();
-            Some(GraphicsUpdateCmd::uniform_buffer_update(self.id, UniformBufferCmd::Create(
-                BufferUpdateData {
-                    modified_bytes: r.0,
-                    buffer_offset: r.1
-                }
-            ))).into_iter()
+            let r = self.modified_bytes().unwrap();
+            Some(GraphicsUpdateCmd::uniform_buffer_update(self.id, UniformBufferCmd::Create(r))).into_iter()
         }
         else {
-            self.modified_range().map(|r| {
+            self.modified_bytes().map(|r| {
                 GraphicsUpdateCmd::uniform_buffer_update(self.id, UniformBufferCmd::Update(
-                    BufferUpdateCmd::Update(
-                        BufferUpdateData {
-                            modified_bytes: r.0,
-                            buffer_offset: r.1
-                        }
-                    )
+                    BufferUpdateCmd::Update(r)
                 ))
             }).into_iter()
         }

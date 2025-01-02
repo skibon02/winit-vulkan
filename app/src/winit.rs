@@ -15,8 +15,9 @@ use winit::raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use render::vulkan_backend::VulkanBackend;
 
 use render::vulkan_backend::config::VulkanRenderConfig;
-use crate::scene::circle::CircleAttributesExt;
+use crate::scene::circle::{CircleAttributes, CircleAttributesExt};
 use crate::scene::Scene;
+use crate::scene::uniforms::Time;
 
 #[cfg(target_os = "android")]
 pub fn run_android(app: AndroidApp) {
@@ -106,7 +107,9 @@ pub struct AppState {
     scene: Scene,
     bg_color: [f32; 3],
     last_touch_pos: [f32; 2],
-    last_frame_time: Instant
+    last_frame_time: Instant,
+    
+    trail_last_update: Instant,
 }
 
 pub enum AppResult {
@@ -125,7 +128,8 @@ impl AppState {
         };
         let vulkan_backend = VulkanBackend::new_for_window(raw_window_handle, raw_display_handle, (inner_size.width, inner_size.height), config).unwrap();
 
-        let object_group = Scene::new();
+        let aspect = inner_size.width as f32 / inner_size.height as f32;
+        let object_group = Scene::new(aspect);
         Self {
             scene: object_group,
             app_finished: false,
@@ -142,8 +146,14 @@ impl AppState {
             bg_color: [0.0, 0.0, 0.0],
             last_touch_pos: [0.0, 0.0],
 
-            last_frame_time: Instant::now()
+            last_frame_time: Instant::now(),
+            trail_last_update: Instant::now(),
         }
+    }
+    
+    fn calculate_aspect(&self) -> f32 {
+        let inner_size = self.window.inner_size();
+        inner_size.width as f32 / inner_size.height as f32
     }
 
     pub fn is_finished(&self) -> bool {
@@ -206,11 +216,11 @@ impl AppState {
                 },
                 ..
             } => {
-                self.scene.circle.modify_pos(|mut pos| {
-                    pos[0] -= 0.1;
-                    self.last_touch_pos = pos;
+                self.scene.mirror_lamp.modify_pos(|mut pos| {
+                    pos[0] += 0.1;
                     pos
                 });
+                self.last_touch_pos[0] -= 0.1;
             }
 
             WindowEvent::KeyboardInput {
@@ -221,11 +231,11 @@ impl AppState {
                 },
                 ..
             } => {
-                self.scene.circle.modify_pos(|mut pos| {
-                    pos[0] += 0.1;
-                    self.last_touch_pos = pos;
+                self.scene.mirror_lamp.modify_pos(|mut pos| {
+                    pos[0] -= 0.1;
                     pos
                 });
+                self.last_touch_pos[0] += 0.1;
             }
 
             WindowEvent::KeyboardInput {
@@ -236,11 +246,11 @@ impl AppState {
                 },
                 ..
             } => {
-                self.scene.circle.modify_pos(|mut pos| {
-                    pos[1] -= 0.1;
-                    self.last_touch_pos = pos;
+                self.scene.mirror_lamp.modify_pos(|mut pos| {
+                    pos[1] += 0.1;
                     pos
                 });
+                self.last_touch_pos[1] -= 0.1;
             }
 
             WindowEvent::KeyboardInput {
@@ -251,11 +261,11 @@ impl AppState {
                 },
                 ..
             } => {
-                self.scene.circle.modify_pos(|mut pos| {
-                    pos[1] += 0.1;
-                    self.last_touch_pos = pos;
+                self.scene.mirror_lamp.modify_pos(|mut pos| {
+                    pos[1] -= 0.1;
                     pos
                 });
+                self.last_touch_pos[1] += 0.1;
             }
 
             WindowEvent::Touch(t) => {
@@ -272,7 +282,7 @@ impl AppState {
                     (t.location.y as f32 / self.window.inner_size().height as f32) * 2.0 - 1.0,
                 ];
                 self.last_touch_pos = pos;
-                self.scene.circle.set_pos(pos);
+                self.scene.mirror_lamp.set_pos([-pos[0], -pos[1]])
             }
 
             WindowEvent::MouseInput {
@@ -281,7 +291,7 @@ impl AppState {
                 ..
             } => {
                 info!("Mouse left button pressed!");
-                self.scene.circle.set_pos([0.0, 0.0]);
+                self.scene.mirror_lamp.set_pos([0.0, 0.0]);
                 self.last_touch_pos = [0.0, 0.0];
             }
 
@@ -329,6 +339,21 @@ impl AppState {
                     self.bg_color[1] += color_change[1];
                     self.bg_color[2] += color_change[2];
 
+                    // update trail
+                    self.scene.time.set(Time{time: (self.start_time.elapsed().as_millis() as i32).into()});
+                    if self.trail_last_update.elapsed().as_secs_f32() > 0.2 {
+                        let trail_id = self.trail_last_update.duration_since(self.start_time).as_millis() as u64;
+
+                        let cur_entry = self.scene.trail.create(trail_id, CircleAttributes {
+                            pos: [self.last_touch_pos[0], self.last_touch_pos[1]].into(),
+                            color: [1.0, 0.7, 1.0, 1.0].into(),
+                            trig_time: (trail_id as i32 + 1_500).into(),
+                        });
+
+                        self.scene.trail.auto_remove(trail_id - 2_000);
+                        
+                        self.trail_last_update = Instant::now();
+                    }
 
                     self.vulkan_backend.render(&mut self.scene, self.bg_color)?;
 
@@ -355,6 +380,12 @@ impl AppState {
                 } else {
                     if !self.rendering_active {
                         info!("Continue rendering...");
+                    }
+                    else {
+                        let aspect = self.calculate_aspect();
+                        self.scene.map_stats.modify(|stats| {
+                            stats.aspect = aspect.into();
+                        })
                     }
                     self.vulkan_backend.recreate_resize((size.width, size.height));
                     self.rendering_active = true;

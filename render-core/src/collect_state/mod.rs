@@ -2,6 +2,7 @@ pub mod uniform_updates;
 pub mod object_updates;
 pub mod single_object;
 pub mod buffer_updates;
+pub mod ordered_object_pool;
 
 use crate::object_handles::{ObjectId, UniformResourceId};
 use crate::{ObjectUpdate2DCmd, UniformBufferCmd};

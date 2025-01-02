@@ -29,6 +29,7 @@ pub fn define_layout(input: TokenStream) -> TokenStream {
             "vec2 < 0 >" => quote! { GlslTypeVariant::Vec2 },
             "uint < 0 >" => quote! { GlslTypeVariant::Uint },
             "float < 0 >" => quote! { GlslTypeVariant::Float },
+            "int < 0 >" => quote! { GlslTypeVariant::Int },
             t => panic!("Unsupported type in define_layout: {}", t),
         };
         member_meta_entries.push(quote! {

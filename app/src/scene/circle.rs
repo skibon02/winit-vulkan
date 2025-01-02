@@ -3,7 +3,6 @@ use smallvec::{smallvec, SmallVec};
 use render::define_layout;
 use render_core::layout::{LayoutInfo, MemberMeta};
 use render_core::layout::types::*;
-use render_core::object_handles::UniformResourceId;
 use render_core::pipeline::{PipelineDesc, UniformBindingType, UniformBindingsDesc, VertexAssembly};
 use render_core::state::StateUpdatesBytes;
 use render_core::state::uniform::{UniformBufferState, UniformImageState};
@@ -14,7 +13,7 @@ define_layout! {
     pub struct CircleAttributes {
         pub color: vec4<0>,
         pub pos: vec2<0>,
-        pub trig_time: uint<0>,
+        pub trig_time: int<0>,
     }
 }
 
@@ -39,4 +38,14 @@ impl PipelineDesc for CirclePipleine {
     }
     const VERTEX_ASSEMBLY: VertexAssembly = VertexAssembly::TriangleStrip;
     const VERTICES_PER_INSTANCE: usize = 4;
+}
+
+impl Default for CircleAttributes {
+    fn default() -> Self {
+        Self {
+            color: [1.0, 1.0, 1.0, 0.0].into(),
+            pos: [0.0, 0.0].into(),
+            trig_time: 0.into(),
+        }
+    }
 }

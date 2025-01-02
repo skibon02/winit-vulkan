@@ -151,13 +151,26 @@ impl ObjectResourcePool {
                         let vertex_data = initial_state.modified_bytes;
                         resource_manager.fill_buffer(entry.vertex_buffer_per_ins, &vertex_data, initial_state.buffer_offset);
                     }
-                    ObjectUpdate2DCmd::AttribUpdate(BufferUpdateData { modified_bytes, buffer_offset }) => {
-                        info!("Updating object with id: {}.", id);
-                        let entry = self.objects.get_mut(&id).expect("Renderer update: object does not exist");
-                        resource_manager.fill_buffer(entry.vertex_buffer_per_ins, &modified_bytes, buffer_offset);
+                    ObjectUpdate2DCmd::AttribUpdate(buffer_update) => match buffer_update {
+                        BufferUpdateCmd::Update(BufferUpdateData { modified_bytes, buffer_offset }) => {
+                            info!("Updating object with id: {}.", id);
+                            let entry = self.objects.get_mut(&id).expect("Renderer update: object does not exist");
+                            resource_manager.fill_buffer(entry.vertex_buffer_per_ins, &modified_bytes, buffer_offset);
+                        }
+                        _ => {
+                            unimplemented!("Renderer update: object attrib update is not implemented");
+                        }
                     }
                     ObjectUpdate2DCmd::Destroy => {
-                        unimplemented!("Renderer update: object destroy is not implemented");
+                        let entry = self.objects.remove(&id).expect("Renderer update: object does not exist");
+                        info!("Destroying object with id: {}", id);
+                        
+                        // destroy DescriptorSet
+                        let descriptor_pool = &mut self.descriptor_set_pool;
+                        entry.descriptor_set.destroy(descriptor_pool);
+                        
+                        // destroy attrib buffer
+                        resource_manager.destroy_buffer(entry.vertex_buffer_per_ins);
                     }
                 }
                 GraphicsUpdateCmd::UniformBuffer(id, uniform_cmd) => match uniform_cmd {
@@ -179,7 +192,7 @@ impl ObjectResourcePool {
                     }
                     UniformBufferCmd::Update(buffer_update) => match buffer_update {
                         BufferUpdateCmd::Update(BufferUpdateData { modified_bytes, buffer_offset }) => {
-                            info!("Updating uniform buffer with id: {}.", id);
+                            // info!("Updating uniform buffer with id: {}.", id);
                             let entry = self.uniform_buffers.get(&id).expect("Renderer update: uniform buffer does not exist");
                             resource_manager.fill_buffer(*entry, &modified_bytes, buffer_offset);
                         }
@@ -217,7 +230,7 @@ impl ObjectResourcePool {
     }
 
     pub fn record_draw_commands(&mut self, command_buffer: vk::CommandBuffer) {
-        for (id, draw_state) in &mut self.objects {
+        for (id, draw_state) in self.objects.iter_mut().rev() {
             let pipeline = self.pipelines.get(&draw_state.pipeline_id).unwrap();
             unsafe {
                 self.device.cmd_bind_pipeline(

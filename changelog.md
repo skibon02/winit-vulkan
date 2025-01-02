@@ -17,10 +17,19 @@ A place where every action with the project is tracked.
 
 ## In progress
 ### Milestone: **Simple 2d app**
-⚙️ Implement multiple instances object
+⚙️ Implement dynamic objects semantics
+⚙️ Implement static scene optimization for same pipeline objects (instanced rendering) \
 
 
 ## Done
+### 01.01.2025
+✅ Modify update commands abstraction \
+✅ Implement OrderedObjectPool \
+✅ Implement object destroy command
+
+### 07.12.2024
+✅ Make it run on MacOS (portability enumeration extension support)
+
 ### 03.12.2024
 ✅ define_layout! and #[derive(CollectDrawStateUpdates)] \
 ✅ Separate to core, derive and render and app crates \
