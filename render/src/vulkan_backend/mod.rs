@@ -270,6 +270,16 @@ impl VulkanBackend {
             width: new_extent.0,
             height: new_extent.1,
         };
+        // Submit all commands and wait for idle
+        self.wait_idle();
+        let cb = self.resource_manager.take_commands();
+        unsafe {
+            self.device.end_command_buffer(cb).unwrap();
+            
+            let command_buffers = [cb];
+            let submit_info = vk::SubmitInfo::default().command_buffers(&command_buffers);
+            self.device.queue_submit(self.queue, &[submit_info], vk::Fence::null()).unwrap();
+        }
         self.wait_idle();
 
         //clear states
@@ -393,7 +403,7 @@ impl VulkanBackend {
                     }
                 }
                 Err(e) => {
-                    error!("queue_present: {}", e);
+                    warn!("queue_present: {}", e);
                 }
             }
         }
@@ -474,7 +484,7 @@ impl VulkanBackend {
     fn wait_idle(&self) {
         let start = std::time::Instant::now();
         unsafe {
-            self.device.device_wait_idle().unwrap();
+            self.device.queue_wait_idle(self.queue).unwrap();
         }
         let end = std::time::Instant::now();
         debug!("Waited for idle for {:?}", end - start);

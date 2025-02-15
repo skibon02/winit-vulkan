@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use crate::vulkan_backend::wrappers::command_pool::{CommandBufferPair, VkCommandPool};
 use crate::vulkan_backend::wrappers::device::VkDeviceRef;
-use crate::vulkan_backend::wrappers::image::image_2d_info;
+use crate::vulkan_backend::wrappers::image::{image_2d_info, get_aspect_mask};
 use ash::vk::{self, Buffer, BufferCreateFlags, BufferUsageFlags, CommandBuffer, CommandBufferUsageFlags, DeviceMemory, DeviceSize, Extent2D, Extent3D, Format, ImageAspectFlags, ImageCreateInfo, ImageLayout, ImageMemoryBarrier, ImageTiling, ImageUsageFlags, MemoryPropertyFlags, SampleCountFlags, Sampler};
 use std::fmt::Debug;
 use std::ops::Range;
@@ -283,7 +283,7 @@ impl ResourceManager {
     }
 
     fn get_image_memory_requirements(&mut self, tiling: ImageTiling, format: Format) -> u32 {
-        let is_color_format = true;
+        let is_color_format = get_aspect_mask(format).contains(ImageAspectFlags::COLOR);
         let device_memory_type = self.device_local_image_memory_type
             .entry((tiling, is_color_format))
             .or_insert_with(|| {
@@ -475,6 +475,34 @@ impl ResourceManager {
         let memory = unsafe { self.device.allocate_memory(&memory_allocate_info, None) }.unwrap();
 
         unsafe { self.device.bind_image_memory(image, memory, 0) }.unwrap();
+        
+        // transition to TRANSFER_DST_OPTIMAL layout
+        let cb = self.command_buffer.current_cb();
+        let image_memory_barrier = [ImageMemoryBarrier::default()
+            .src_access_mask(vk::AccessFlags::NONE)
+            .dst_access_mask(vk::AccessFlags::NONE)
+            .old_layout(ImageLayout::UNDEFINED)
+            .new_layout(ImageLayout::TRANSFER_DST_OPTIMAL)
+            .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .image(image)
+            .subresource_range(vk::ImageSubresourceRange::default()
+                .aspect_mask(get_aspect_mask(format))
+                .layer_count(1)
+                .level_count(1)
+            )
+        ];
+        unsafe {
+            self.device.cmd_pipeline_barrier(
+                cb,
+                vk::PipelineStageFlags::TOP_OF_PIPE,
+                vk::PipelineStageFlags::TRANSFER,
+                vk::DependencyFlags::empty(),
+                &[],
+                &[],
+                &image_memory_barrier,
+            );
+        }
 
         let res = ImageResource {
             image,
@@ -525,8 +553,8 @@ impl ResourceManager {
         }
         let cb = self.command_buffer.current_cb();
         let image_memory_barrier = [ImageMemoryBarrier::default()
-            .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
-            .dst_access_mask(vk::AccessFlags::SHADER_READ)
+            .src_access_mask(vk::AccessFlags::NONE)
+            .dst_access_mask(vk::AccessFlags::NONE)
             .old_layout(ImageLayout::TRANSFER_DST_OPTIMAL)
             .new_layout(final_layout)
             .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
@@ -542,7 +570,7 @@ impl ResourceManager {
             self.device.cmd_pipeline_barrier(
                 cb,
                 vk::PipelineStageFlags::TRANSFER,
-                vk::PipelineStageFlags::FRAGMENT_SHADER,
+                vk::PipelineStageFlags::TRANSFER,
                 vk::DependencyFlags::empty(),
                 &[],
                 &[],

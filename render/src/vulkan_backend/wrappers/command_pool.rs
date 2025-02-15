@@ -47,18 +47,18 @@ impl CommandBufferPair {
             current_cb: 0,
         }
     }
-    
+
     pub fn current_cb(&self) -> CommandBuffer {
         self.command_buffers[self.current_cb]
     }
-    
+
     pub fn swap_buffers(&mut self, device: &VkDeviceRef) -> CommandBuffer {
         let current_cb = self.current_cb();
-        
+
         self.current_cb = 1 - self.current_cb;
         let new_cb = self.current_cb();
         unsafe {device.begin_command_buffer(new_cb, &vk::CommandBufferBeginInfo::default()).unwrap()}
-        
+
         current_cb
     }
 }

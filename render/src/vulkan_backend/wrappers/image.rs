@@ -30,7 +30,7 @@ pub fn image_2d_info<'a>(
         .mip_levels(1)
         .sharing_mode(vk::SharingMode::EXCLUSIVE)
         .tiling(tiling)
-        .initial_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+        .initial_layout(vk::ImageLayout::UNDEFINED)
         .image_type(vk::ImageType::TYPE_2D)
 }
 
@@ -81,4 +81,20 @@ pub fn swapchain_info(
         .image_array_layers(image_info.array_layers)
         .image_sharing_mode(image_info.sharing_mode)
         .image_usage(ImageUsageFlags::COLOR_ATTACHMENT)
+}
+
+pub fn get_aspect_mask(format: Format) -> ImageAspectFlags {
+    if format == Format::D16_UNORM
+        || format == Format::D32_SFLOAT
+    {
+        ImageAspectFlags::DEPTH
+    } else if format == Format::D16_UNORM_S8_UINT
+        || format == Format::D24_UNORM_S8_UINT
+        || format == Format::D32_SFLOAT_S8_UINT
+    {
+        ImageAspectFlags::DEPTH | ImageAspectFlags::STENCIL
+        
+    } else {
+        ImageAspectFlags::COLOR
+    }
 }
