@@ -3,7 +3,7 @@ use std::ffi::{c_char, CStr};
 use std::slice;
 use std::sync::Arc;
 use ash::{vk, Entry};
-use ash::vk::{ApplicationInfo, DebugUtilsMessengerCreateInfoEXT, InstanceCreateInfo};
+use ash::vk::{ApplicationInfo, DebugReportCallbackCreateInfoEXT, DebugUtilsMessengerCreateInfoEXT, InstanceCreateInfo};
 use log::{info, warn};
 use sparkles_macro::range_event_start;
 use crate::vulkan_backend::wrappers::device::{VkDevice, VkDeviceRef};
@@ -31,7 +31,7 @@ impl CapabilitiesChecker {
 
     pub fn create_instance(&mut self, app_info: &ApplicationInfo,
            required_layers: &mut Vec<*const c_char>, required_extensions: &mut Vec<*const c_char>,
-            debug_utils_info: &mut DebugUtilsMessengerCreateInfoEXT) -> anyhow::Result<Arc<VkInstance>> {
+            debug_report_info: &mut DebugReportCallbackCreateInfoEXT) -> anyhow::Result<Arc<VkInstance>> {
 
         let g = range_event_start!("[VulkanHelpers] Create instance");
 
@@ -85,7 +85,7 @@ impl CapabilitiesChecker {
 
         let mut create_info = InstanceCreateInfo::default()
             .application_info(app_info)
-            .push_next(debug_utils_info);
+            .push_next(debug_report_info);
 
         // check if KHR_portability_enumeration supported
         if cfg!(feature="portability_subset") {

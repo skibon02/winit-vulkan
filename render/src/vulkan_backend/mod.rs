@@ -23,7 +23,7 @@ use crate::vulkan_backend::render_pass::RenderPassResources;
 use crate::vulkan_backend::resource_manager::{BufferResource, ResourceManager};
 use crate::vulkan_backend::wrappers::capabilities_checker::CapabilitiesChecker;
 use crate::vulkan_backend::wrappers::command_pool::VkCommandPool;
-use crate::vulkan_backend::wrappers::debug_utils::VkDebugUtils;
+use crate::vulkan_backend::wrappers::debug_report::VkDebugReport;
 use crate::vulkan_backend::wrappers::device::VkDeviceRef;
 use crate::vulkan_backend::wrappers::surface::{VkSurface, VkSurfaceRef};
 use render_pass::RenderPassWrapper;
@@ -38,7 +38,7 @@ use crate::vulkan_backend::object_resource_pool::ObjectResourcePool;
 pub struct VulkanBackend {
     config: VulkanRenderConfig,
 
-    debug_utils: VkDebugUtils,
+    debug_report: VkDebugReport,
     surface: VkSurfaceRef,
     physical_device: PhysicalDevice,
     device: VkDeviceRef,
@@ -93,27 +93,27 @@ impl VulkanBackend {
             instance_layers.iter().map(|l| l.as_ptr()).collect();
 
         //define desired extensions
-        // 1 Debug utils
+        // 1 Debug report
         // 2,3 Required extensions for surface support (platform_specific surface + general surface)
         // 4 Portability enumeration (for moltenvk)
         let surface_required_extensions =
             ash_window::enumerate_required_extensions(display_handle)?;
         let mut instance_extensions: Vec<*const c_char> = surface_required_extensions.to_vec();
-        instance_extensions.push(ash::ext::debug_utils::NAME.as_ptr());
+        instance_extensions.push(ash::ext::debug_report::NAME.as_ptr());
 
-        let mut debug_utils_messenger_info = VkDebugUtils::get_messenger_create_info();
+        let mut debug_report_callback_info = VkDebugReport::get_messenger_create_info();
         
         let mut caps_checker = CapabilitiesChecker::new();
 
         // caps_checker will check requested layers and extensions and enable only the
         // supported ones, which can be requested later
         let instance = caps_checker.create_instance(&app_info, &mut instance_layers_refs,
-                                        &mut instance_extensions, &mut debug_utils_messenger_info)?;
+                                        &mut instance_extensions, &mut debug_report_callback_info)?;
 
         let surface = VkSurface::new(instance.clone(), display_handle, window_handle)?;
 
-        let debug_utils = VkDebugUtils::new(instance.clone())?;
-        // instance is created. debug utils ready
+        let debug_report = VkDebugReport::new(instance.clone())?;
+        // instance is created. debug report ready
 
         let physical_devices = unsafe { instance.enumerate_physical_devices()? };
 
@@ -240,7 +240,7 @@ impl VulkanBackend {
             config,
 
             surface,
-            debug_utils,
+            debug_report,
 
             physical_device,
             device,
