@@ -126,7 +126,7 @@ impl DescriptorSetPool {
                 .image_info(&image_infos[i])
         })).collect();
         
-        info!("Descriptor writes: {:?}", descriptor_writes);
+        // info!("Descriptor writes: {:?}", descriptor_writes);
 
         unsafe { self.device.update_descriptor_sets(&descriptor_writes, &[]) }
 

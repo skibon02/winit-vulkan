@@ -15,17 +15,16 @@ A place where every action with the project is tracked.
 🔨 Support WASM platform in render  
 🔨 Make render and app work in browser (require webgl and WASM support)  
 
-### Vulkan cmd submit abstraction (need more research)
-🔨 Take care of synchronization between commands  
-
 ## In progress
 ### Milestone: **Simple 2d app**
 ⚙️ Implement dynamic objects semantics  
 ⚙️ Implement static scene optimization for same pipeline objects (instanced rendering)  
-⚙️ Improve vulkan updates (do not wait_for_idle)  
-⚙️ support different rendering modes (frame updates perspective)  
+⚙️ support 2 in-flight frames
 
 ## Done
+### 16.02.2025
+✅ Improve vulkan updates (do not wait_for_idle)
+
 ### 01.01.2025
 ✅ Modify update commands abstraction  
 ✅ Implement OrderedObjectPool  

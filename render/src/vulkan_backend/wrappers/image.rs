@@ -30,7 +30,7 @@ pub fn image_2d_info<'a>(
         .mip_levels(1)
         .sharing_mode(vk::SharingMode::EXCLUSIVE)
         .tiling(tiling)
-        .initial_layout(vk::ImageLayout::UNDEFINED)
+        .initial_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
         .image_type(vk::ImageType::TYPE_2D)
 }
 

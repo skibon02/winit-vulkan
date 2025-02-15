@@ -317,6 +317,7 @@ impl VulkanBackend {
             drop(g);
             self.device.reset_fences(&[cur_fence]).unwrap();
 
+            self.resource_manager.free_staging_allocations();
 
             let g = range_event_start!("[Vulkan] Acquire next image...");
             let res = self
@@ -453,6 +454,19 @@ impl VulkanBackend {
             self.object_resource_pool.record_draw_commands(command_buffer);
 
             device.cmd_end_render_pass(command_buffer);
+
+            // insert WRITE_AFTER_READ execution dependency for transfer operations on next frame
+            unsafe {
+                self.device.cmd_pipeline_barrier(
+                    command_buffer,
+                    vk::PipelineStageFlags::ALL_GRAPHICS,
+                    vk::PipelineStageFlags::TRANSFER,
+                    vk::DependencyFlags::empty(),
+                    &[],
+                    &[],
+                    &[],
+                );
+            }
             device.end_command_buffer(command_buffer).unwrap();
         }
     }

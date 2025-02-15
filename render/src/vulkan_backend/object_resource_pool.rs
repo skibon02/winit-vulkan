@@ -3,7 +3,7 @@ use std::collections::{btree_map, BTreeMap};
 use std::collections::btree_map::Entry;
 use std::path::Path;
 use ash::vk;
-use ash::vk::{BufferUsageFlags, DeviceSize, Extent2D, ImageTiling, ImageView, PipelineBindPoint, PrimitiveTopology, SampleCountFlags};
+use ash::vk::{BufferUsageFlags, DeviceSize, Extent2D, ImageLayout, ImageTiling, ImageView, PipelineBindPoint, PrimitiveTopology, SampleCountFlags};
 use log::info;
 use smallvec::SmallVec;
 use render_core::collect_state::{CollectDrawStateUpdates, GraphicsUpdateCmd};
@@ -36,10 +36,8 @@ pub struct UniformImage {
 }
 impl UniformImage {
     pub fn new(image_data: Vec<u8>, extent: Extent2D, resource_manager: &mut ResourceManager, device: VkDeviceRef) -> Self {
-        let image = resource_manager.create_image(extent, vk::Format::R8G8B8A8_UNORM, ImageTiling::OPTIMAL,
-                                                  vk::ImageUsageFlags::SAMPLED, SampleCountFlags::TYPE_1);
-
-        resource_manager.fill_image(image, image_data.as_slice());
+        let image = resource_manager.create_fill_image(extent, vk::Format::R8G8B8A8_UNORM, ImageTiling::OPTIMAL,
+                                                  vk::ImageUsageFlags::SAMPLED, SampleCountFlags::TYPE_1, image_data.as_slice(), ImageLayout::SHADER_READ_ONLY_OPTIMAL);
 
         let imageview_info = imageview_info_for_image(image.image, image.info, vk::ImageAspectFlags::COLOR);
         let imageview = unsafe { device.create_image_view(&imageview_info, None) }.unwrap();
@@ -89,6 +87,7 @@ impl ObjectResourcePool {
     pub fn update_objects<'a>(&mut self, resource_manager: &mut ResourceManager,
                               draw_state_updates: &mut impl CollectDrawStateUpdates,
                               render_pass: &RenderPassWrapper) {
+        // 1) perform updates
         let updates_iter = draw_state_updates.collect_updates();
         for update_cmd in updates_iter {
             match update_cmd {
@@ -102,7 +101,8 @@ impl ObjectResourcePool {
                         let Entry::Vacant(entry) = entry else {
                             panic!("Renderer update: object already exists");
                         };
-                        let entry = entry.insert({
+                        assert_eq!(initial_state.buffer_offset, 0);
+                        entry.insert({
                             info!("Creating new object with id: {}", id);
                             let pipeline_desc = pipeline_desc();
                             let pipeline_entry = self.pipelines.entry(pipeline_desc.id).or_insert_with(|| {
@@ -128,9 +128,10 @@ impl ObjectResourcePool {
 
                             // create vertex buffer for per-instance attributes
                             let vertex_data = initial_state.modified_bytes;
-                            let vertex_buffer_per_ins = resource_manager.create_buffer(
+                            let vertex_buffer_per_ins = resource_manager.create_fill_buffer(
                                 vertex_data.len() as DeviceSize,
                                 BufferUsageFlags::VERTEX_BUFFER,
+                                vertex_data
                             );
 
                             // for now, it is 1
@@ -144,16 +145,10 @@ impl ObjectResourcePool {
                                 pipeline_id: pipeline_desc.id,
                             }
                         });
-
-                        info!("Updating object with id: {}. State: {:?}", id, initial_state);
-
-                        // update per-instance attributes
-                        let vertex_data = initial_state.modified_bytes;
-                        resource_manager.fill_buffer(entry.vertex_buffer_per_ins, &vertex_data, initial_state.buffer_offset);
                     }
                     ObjectUpdate2DCmd::AttribUpdate(buffer_update) => match buffer_update {
                         BufferUpdateCmd::Update(BufferUpdateData { modified_bytes, buffer_offset }) => {
-                            info!("Updating object with id: {}.", id);
+                            // info!("Updating object with id: {}.", id);
                             let entry = self.objects.get_mut(&id).expect("Renderer update: object does not exist");
                             resource_manager.fill_buffer(entry.vertex_buffer_per_ins, &modified_bytes, buffer_offset);
                         }
@@ -176,19 +171,19 @@ impl ObjectResourcePool {
                 GraphicsUpdateCmd::UniformBuffer(id, uniform_cmd) => match uniform_cmd {
                     UniformBufferCmd::Create(BufferUpdateData { modified_bytes, buffer_offset }) => {
                         let entry = self.uniform_buffers.entry(id);
+                        assert_eq!(buffer_offset, 0);
                         let Entry::Vacant(entry) = entry else {
                             panic!("Renderer update: uniform buffer already exists");
                         };
-                        let entry = entry.insert({
+                        entry.insert({
                             info!("Creating new uniform buffer with id: {}", id);
-                            let buffer = resource_manager.create_buffer(
+                            let buffer = resource_manager.create_fill_buffer(
                                 modified_bytes.len() as DeviceSize,
                                 BufferUsageFlags::UNIFORM_BUFFER,
+                                modified_bytes
                             );
                             buffer
                         });
-                        info!("Updating uniform buffer with id: {}", id);
-                        resource_manager.fill_buffer(*entry, &modified_bytes, buffer_offset);
                     }
                     UniformBufferCmd::Update(buffer_update) => match buffer_update {
                         BufferUpdateCmd::Update(BufferUpdateData { modified_bytes, buffer_offset }) => {
@@ -213,7 +208,7 @@ impl ObjectResourcePool {
                         let Entry::Vacant(entry) = entry else {
                             panic!("Renderer update: image resource already exists");
                         };
-                        let entry = entry.insert({
+                        entry.insert({
                             info!("Creating new image resource with id: {}", id);
                             let data = get_resource(Path::join("resources".as_ref(), path)).unwrap();
                             let (image_data, extent) = read_image_from_bytes(data).unwrap();
@@ -226,6 +221,29 @@ impl ObjectResourcePool {
                     }
                 }
             }
+        }
+        
+        
+        // 2) insert READ_AFTER_WRITE barrier for transfer and host write operations
+        let cb = resource_manager.take_commands();
+        let command_buffers = [cb];
+        unsafe {
+            let memory_barrier = [vk::MemoryBarrier::default()
+                .src_access_mask(vk::AccessFlags::TRANSFER_WRITE | vk::AccessFlags::HOST_WRITE)
+                .dst_access_mask(vk::AccessFlags::MEMORY_READ)];
+            self.device.cmd_pipeline_barrier(
+                cb,
+                vk::PipelineStageFlags::TRANSFER | vk::PipelineStageFlags::HOST,
+                vk::PipelineStageFlags::ALL_GRAPHICS,
+                vk::DependencyFlags::empty(),
+                &memory_barrier,
+                &[],
+                &[],
+            );
+            self.device.end_command_buffer(cb).unwrap();
+            let submit_info = vk::SubmitInfo::default()
+                .command_buffers(&command_buffers);
+            self.device.queue_submit(resource_manager.queue(), &[submit_info], vk::Fence::null()).unwrap();
         }
     }
 
