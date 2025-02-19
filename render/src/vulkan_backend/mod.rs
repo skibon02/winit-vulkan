@@ -11,11 +11,7 @@ use swapchain_wrapper::SwapchainWrapper;
 
 use log::{debug, error, info, warn};
 
-use ash::vk::{
-    self, make_api_version, ApplicationInfo, BufferUsageFlags, CommandBuffer,
-    CommandBufferBeginInfo, DeviceSize, Extent2D, FenceCreateFlags, PhysicalDevice,
-    PipelineBindPoint, PrimitiveTopology, Queue, RenderPassBeginInfo, Semaphore,
-};
+use ash::vk::{self, make_api_version, ApplicationInfo, BufferUsageFlags, CommandBuffer, CommandBufferBeginInfo, DeviceSize, Event, EventCreateFlags, EventCreateInfo, Extent2D, FenceCreateFlags, PhysicalDevice, PipelineBindPoint, PipelineStageFlags, PrimitiveTopology, Queue, RenderPassBeginInfo, Semaphore};
 
 use crate::vulkan_backend::descriptor_sets::ObjectDescriptorSet;
 use crate::vulkan_backend::pipeline::{VulkanPipeline};
@@ -30,11 +26,29 @@ use render_pass::RenderPassWrapper;
 use sparkles_macro::{instant_event, range_event_start};
 use std::array::from_fn;
 use std::ffi::{c_char, CString};
+use std::time::Instant;
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 use render_core::collect_state::CollectDrawStateUpdates;
 use crate::vulkan_backend::config::VulkanRenderConfig;
 use crate::vulkan_backend::object_resource_pool::ObjectResourcePool;
 
+pub struct SyncSet {
+    command_buffer: CommandBuffer,
+    payload_semaphore: Semaphore,
+    fence: vk::Fence,
+    transfer_finished_ev: Event,
+
+    device: VkDeviceRef,
+}
+impl Drop for SyncSet {
+    fn drop(&mut self) {
+        unsafe {
+            self.device.destroy_fence(self.fence, None);
+            self.device.destroy_semaphore(self.payload_semaphore, None);
+            self.device.destroy_event(self.transfer_finished_ev, None);
+        }
+    }
+}
 pub struct VulkanBackend {
     config: VulkanRenderConfig,
 
@@ -47,15 +61,10 @@ pub struct VulkanBackend {
 
     resource_manager: ResourceManager,
 
-    command_buffers: [CommandBuffer; 1],
-    image_available_semaphores: [Semaphore; 1],
-    render_finished_semaphores: [Semaphore; 1],
-    fences: [vk::Fence; 1],
-    cur_command_buffer: usize,
-    command_buffer_last_index: [Option<usize>; 1],
+    sync_sets: Vec<SyncSet>,
+    cur_sync_set: usize,
 
     swapchain_wrapper: SwapchainWrapper,
-
     object_resource_pool: ObjectResourcePool,
 
     // stuff for actual rendering
@@ -183,27 +192,38 @@ impl VulkanBackend {
 
         let queue = unsafe { device.get_device_queue(queue_family_index, 0) };
         let command_pool = VkCommandPool::new(device.clone(), queue_family_index);
-        let command_buffers = command_pool.alloc_command_buffers(1);
 
-        let image_available_semaphores = from_fn(|_| unsafe {
-            device
-                .create_semaphore(&vk::SemaphoreCreateInfo::default(), None)
-                .unwrap()
-        });
-        let render_finished_semaphores = from_fn(|_| unsafe {
-            device
-                .create_semaphore(&vk::SemaphoreCreateInfo::default(), None)
-                .unwrap()
-        });
+        let sync_sets = (0..config.in_flight_frames.into()).map(|_| {
+            let payload_semaphore = unsafe {
+                device
+                    .create_semaphore(&vk::SemaphoreCreateInfo::default(), None)
+                    .unwrap()
+            };
+            let fence = unsafe {
+                device
+                    .create_fence(
+                        &vk::FenceCreateInfo::default().flags(FenceCreateFlags::SIGNALED),
+                        None,
+                    )
+                    .unwrap()
+            };
+            let command_buffer = command_pool.alloc_command_buffers(1)[0];
+            let transfer_finished_ev = unsafe {
+                let ev = device.create_event(&EventCreateInfo::default(), None).unwrap();
+                device.set_event(ev).unwrap();
+                ev
+            };
 
-        let fences = from_fn(|_| unsafe {
-            device
-                .create_fence(
-                    &vk::FenceCreateInfo::default().flags(FenceCreateFlags::SIGNALED),
-                    None,
-                )
-                .unwrap()
-        });
+            SyncSet {
+                fence,
+                payload_semaphore,
+                command_buffer,
+                transfer_finished_ev,
+
+                device: device.clone(),
+            }
+        }).collect();
+
 
         let mut resource_manager =
             ResourceManager::new(physical_device, device.clone(), queue, &command_pool);
@@ -250,12 +270,9 @@ impl VulkanBackend {
             resource_manager,
 
             swapchain_wrapper,
-            command_buffers: command_buffers.try_into().unwrap(),
-            image_available_semaphores,
-            render_finished_semaphores,
-            fences,
-            cur_command_buffer: 0,
-            command_buffer_last_index: [None; 1],
+
+            sync_sets,
+            cur_sync_set: 0,
 
             object_resource_pool,
 
@@ -281,9 +298,6 @@ impl VulkanBackend {
             self.device.queue_submit(self.queue, &[submit_info], vk::Fence::null()).unwrap();
         }
         self.wait_idle();
-
-        //clear states
-        self.command_buffer_last_index = [None; 1];
 
         // 1. Destroy swapchain dependent resources
         unsafe {
@@ -313,19 +327,25 @@ impl VulkanBackend {
 
     pub fn render(&mut self, draw_state_diff: &mut impl CollectDrawStateUpdates, clear_color: [f32; 3]) -> anyhow::Result<()> {
         let g = range_event_start!("[Vulkan] render");
-        let frame_index = self.cur_command_buffer;
-        self.cur_command_buffer = (frame_index + 1) % self.command_buffers.len();
-        let cur_fence = self.fences[frame_index];
-        let cur_command_buffer = self.command_buffers[frame_index];
+        let prev_sync_set = &self.sync_sets[self.cur_sync_set];
+        self.cur_sync_set = (self.cur_sync_set + 1) % self.sync_sets.len();
+        let cur_sync_set = &self.sync_sets[self.cur_sync_set];
+
+        let prev_fence = prev_sync_set.fence;
+        let cur_fence = cur_sync_set.fence;
+        let cur_semaphore = cur_sync_set.payload_semaphore;
+        let cur_command_buffer = cur_sync_set.command_buffer;
+        let prev_transfer_finish_ev = prev_sync_set.transfer_finished_ev;
+        let cur_transfer_finish_ev = cur_sync_set.transfer_finished_ev;
 
         // 1) Acquire next image
         let (image_index, is_suboptimal) = unsafe {
             let g = range_event_start!("[Vulkan] Wait for fences...");
             self.device
-                .wait_for_fences(&[cur_fence], true, u64::MAX)
+                .wait_for_fences(&[prev_fence], true, u64::MAX)
                 .unwrap();
             drop(g);
-            self.device.reset_fences(&[cur_fence]).unwrap();
+            self.device.reset_fences(&[prev_fence]).unwrap();
 
             self.resource_manager.free_staging_allocations();
 
@@ -336,7 +356,7 @@ impl VulkanBackend {
                 .acquire_next_image(
                     self.swapchain_wrapper.get_swapchain(),
                     u64::MAX,
-                    self.image_available_semaphores[frame_index],
+                    cur_semaphore,
                     vk::Fence::null(),
                 )
                 .expect("Failed to acquire next image.");
@@ -348,6 +368,16 @@ impl VulkanBackend {
             warn!("Swapchain is suboptimal!");
         }
 
+        // 1.1) Ensure last transfer was finished and staging buffers can be reused
+        unsafe {
+            let prev_ev = prev_sync_set.transfer_finished_ev;
+            let start = Instant::now();
+            while !self.device.get_event_status(prev_ev).unwrap() {}
+            let dur = start.elapsed();
+            if dur.as_micros() > 100 {
+                warn!("Event wait took {} us", dur.as_micros());
+            }
+        }
         // 2) Update
         let g = range_event_start!("[Vulkan] Update draw collect_state");
 
@@ -356,19 +386,26 @@ impl VulkanBackend {
         draw_state_diff.clear_updates();
         drop(g);
 
+        // 2.1) Begin command buffer and signal transfer finished event
+        let command_buffer_begin_info = CommandBufferBeginInfo::default();
+        unsafe {
+            self.device
+                .begin_command_buffer(cur_command_buffer, &command_buffer_begin_info)
+                .unwrap();
+            
+            self.device.cmd_set_event(cur_command_buffer, cur_transfer_finish_ev, PipelineStageFlags::TRANSFER);
+        }
+
         // 3) record command buffer (if index was changed)
         let image_index = image_index as usize;
-        if self.command_buffer_last_index[frame_index] != Some(image_index) {
-            self.record_draw(cur_command_buffer, image_index, clear_color);
-            self.command_buffer_last_index[frame_index] = Some(image_index);
-        };
+        self.record_draw(cur_command_buffer, image_index, clear_color);
 
         let g = range_event_start!("[Vulkan] Submit command buffer");
         // 3.1) submit command buffer
-        let wait_semaphores = [self.image_available_semaphores[frame_index]];
+        let wait_semaphores = [cur_semaphore];
         let wait_dst_stage_mask = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
         let command_buffers = [cur_command_buffer];
-        let signal_semaphores = [self.render_finished_semaphores[frame_index]];
+        let signal_semaphores = [cur_semaphore];
         let submit_infos = [vk::SubmitInfo::default()
             .wait_semaphores(&wait_semaphores)
             .wait_dst_stage_mask(&wait_dst_stage_mask)
@@ -376,7 +413,7 @@ impl VulkanBackend {
             .signal_semaphores(&signal_semaphores)];
         unsafe {
             self.device
-                .queue_submit(self.queue, &submit_infos, self.fences[frame_index])
+                .queue_submit(self.queue, &submit_infos, cur_fence)
                 .unwrap();
         }
         drop(g);
@@ -384,7 +421,7 @@ impl VulkanBackend {
         // 4) present
         let g = range_event_start!("[Vulkan] Queue present");
         let swapchains = [self.swapchain_wrapper.get_swapchain()];
-        let semaphores = [self.render_finished_semaphores[frame_index]];
+        let semaphores = [cur_semaphore];
         let image_indices = [image_index as u32];
         let present_info = vk::PresentInfoKHR::default()
             .swapchains(&swapchains)
@@ -407,6 +444,7 @@ impl VulkanBackend {
                 }
             }
         }
+
         Ok(())
     }
 
@@ -416,7 +454,6 @@ impl VulkanBackend {
         let extent = self.swapchain_wrapper.get_extent();
 
         let g = range_event_start!("[Vulkan] Command buffer recording");
-        let command_buffer_begin_info = CommandBufferBeginInfo::default();
         let clear_color = [clear_color[0], clear_color[1], clear_color[2], 1.0];
         let clear_values = [
             vk::ClearValue {
@@ -447,9 +484,6 @@ impl VulkanBackend {
             .height(extent.height as f32);
         let scissors = extent.into();
         unsafe {
-            device
-                .begin_command_buffer(command_buffer, &command_buffer_begin_info)
-                .unwrap();
             device.cmd_begin_render_pass(
                 command_buffer,
                 &render_pass_begin_info,
@@ -466,17 +500,15 @@ impl VulkanBackend {
             device.cmd_end_render_pass(command_buffer);
 
             // insert WRITE_AFTER_READ execution dependency for transfer operations on next frame
-            unsafe {
-                self.device.cmd_pipeline_barrier(
-                    command_buffer,
-                    vk::PipelineStageFlags::ALL_GRAPHICS,
-                    vk::PipelineStageFlags::TRANSFER,
-                    vk::DependencyFlags::empty(),
-                    &[],
-                    &[],
-                    &[],
-                );
-            }
+            self.device.cmd_pipeline_barrier(
+                command_buffer,
+                vk::PipelineStageFlags::ALL_GRAPHICS,
+                vk::PipelineStageFlags::TRANSFER,
+                vk::DependencyFlags::empty(),
+                &[],
+                &[],
+                &[],
+            );
             device.end_command_buffer(command_buffer).unwrap();
         }
     }
@@ -498,22 +530,6 @@ impl Drop for VulkanBackend {
         unsafe {
             self.render_pass_resources
                 .destroy(&mut self.resource_manager);
-        }
-
-        for semaphore in self.image_available_semaphores {
-            unsafe {
-                self.device.destroy_semaphore(semaphore, None);
-            }
-        }
-        for semaphore in self.render_finished_semaphores {
-            unsafe {
-                self.device.destroy_semaphore(semaphore, None);
-            }
-        }
-        for fence in self.fences {
-            unsafe {
-                self.device.destroy_fence(fence, None);
-            }
         }
     }
 }

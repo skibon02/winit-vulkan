@@ -28,6 +28,7 @@ smallvec = { version = "1.13.2", features = ["const_new"] }
 
 render-core = { version = "0.1.0", path = "../render-core" }
 render-macro = { version = "0.1.0", path = "../render-macro" }
+num_enum = "0.7.3"
 
 [features]
 default = ["validation_layers"]

@@ -1748,6 +1748,7 @@ dependencies = [
  "log",
  "ndk",
  "ndk-sys",
+ "num_enum",
  "raw-window-handle",
  "render-core",
  "render-macro",

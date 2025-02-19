@@ -14,7 +14,7 @@ pub use winit::platform::android::activity::AndroidApp;
 use winit::raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use render::vulkan_backend::VulkanBackend;
 
-use render::vulkan_backend::config::VulkanRenderConfig;
+use render::vulkan_backend::config::{InFlightFrames, VulkanRenderConfig};
 use crate::scene::circle::{CircleAttributes, CircleAttributesExt};
 use crate::scene::Scene;
 use crate::scene::uniforms::Time;
@@ -125,6 +125,7 @@ impl AppState {
         let inner_size = window.inner_size();
         let config = VulkanRenderConfig {
             msaa_samples: None,
+            in_flight_frames: InFlightFrames::One
         };
         let vulkan_backend = VulkanBackend::new_for_window(raw_window_handle, raw_display_handle, (inner_size.width, inner_size.height), config).unwrap();
 

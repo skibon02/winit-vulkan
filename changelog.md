@@ -19,9 +19,12 @@ A place where every action with the project is tracked.
 ### Milestone: **Simple 2d app**
 ⚙️ Implement dynamic objects semantics  
 ⚙️ Implement static scene optimization for same pipeline objects (instanced rendering)  
-⚙️ support 2 in-flight frames
+⚙️ Explore event handling
 
 ## Done
+### 18.02.2025
+✅ support 2 in-flight frames
+
 ### 16.02.2025
 ✅ Improve vulkan updates (do not wait_for_idle)
 

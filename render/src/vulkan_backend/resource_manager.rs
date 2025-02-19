@@ -39,7 +39,7 @@ unsafe fn map_and_write_memory<T: Copy>(device: &VkDeviceRef, memory: vk::Device
         .map_memory(memory, offset, size, vk::MemoryMapFlags::empty())
         .unwrap();
     assert_eq!(mem_ptr.align_offset(std::mem::align_of::<T>()), 0, "Memory is not properly aligned");
-    
+
     let mem_slice = std::slice::from_raw_parts_mut(mem_ptr as *mut T, data.len());
     mem_slice.copy_from_slice(data);
     device.unmap_memory(memory);
