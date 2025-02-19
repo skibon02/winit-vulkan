@@ -3,9 +3,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::vulkan_backend::wrappers::command_pool::{CommandBufferPair, VkCommandPool};
 use crate::vulkan_backend::wrappers::device::VkDeviceRef;
 use crate::vulkan_backend::wrappers::image::{image_2d_info, get_aspect_mask};
-use ash::vk::{self, Buffer, BufferCreateFlags, BufferUsageFlags, CommandBuffer, CommandBufferUsageFlags, DeviceMemory, DeviceSize, Extent2D, Extent3D, Format, ImageAspectFlags, ImageCreateInfo, ImageLayout, ImageMemoryBarrier, ImageTiling, ImageUsageFlags, MemoryPropertyFlags, SampleCountFlags, Sampler};
+use ash::vk::{self, Buffer, BufferCreateFlags, BufferUsageFlags, CommandBuffer, CommandBufferUsageFlags, DeviceMemory, DeviceSize, Extent2D, Extent3D, Format, ImageAspectFlags, ImageCreateInfo, ImageLayout, ImageMemoryBarrier, ImageTiling, ImageUsageFlags, MappedMemoryRange, MemoryPropertyFlags, SampleCountFlags, Sampler};
 use std::fmt::Debug;
 use std::ops::Range;
+use log::info;
 use sparkles_macro::range_event_start;
 
 const STAGING_BUFFER_SIZE: usize = 1024 * 1024 * 128; // 128 MB
@@ -30,15 +31,34 @@ pub struct ImageResource {
 }
 
 /// Safety:
-/// 1) data.len() * size_of::<T>() must be less than `size`
+/// 1) data.len() * size_of::<T>() must be <= `size`
 /// 2) offset..offset+size range of `memory` must not be used by any commands which are not completed
-/// 3) `memory` must be allocated from COHERENT memory type
+/// 3) `memory` must be allocated from HOST_COHERENT memory type
 unsafe fn map_and_write_memory<T: Copy>(device: &VkDeviceRef, memory: vk::DeviceMemory, offset: DeviceSize, size: DeviceSize, data: &[T]) {
     let mem_ptr = device
         .map_memory(memory, offset, size, vk::MemoryMapFlags::empty())
         .unwrap();
+    assert_eq!(mem_ptr.align_offset(std::mem::align_of::<T>()), 0, "Memory is not properly aligned");
+    
     let mem_slice = std::slice::from_raw_parts_mut(mem_ptr as *mut T, data.len());
     mem_slice.copy_from_slice(data);
+    device.unmap_memory(memory);
+}
+
+/// Safety:
+/// 1) data.len() * size_of::<T>() must be <= `size`
+/// 2) offset..offset+size range of `memory` must not be used by any commands which are not completed
+/// 3) `memory` must be allocated from HOST_VISIBLE memory type
+unsafe fn map_and_write_memory_non_coherent<T: Copy>(device: &VkDeviceRef, memory: vk::DeviceMemory, offset: DeviceSize, size: DeviceSize, data: &[T]) {
+    let mem_ptr = device
+        .map_memory(memory, offset, size, vk::MemoryMapFlags::empty())
+        .unwrap();
+    assert_eq!(mem_ptr.align_offset(std::mem::align_of::<T>()), 0, "Memory is not properly aligned");
+
+    device.invalidate_mapped_memory_ranges(&[MappedMemoryRange::default().memory(memory).offset(offset).size(size)]).unwrap();
+    let mem_slice = std::slice::from_raw_parts_mut(mem_ptr as *mut T, data.len());
+    mem_slice.copy_from_slice(data);
+    device.flush_mapped_memory_ranges(&[MappedMemoryRange::default().memory(memory).offset(offset).size(size)]).unwrap();
     device.unmap_memory(memory);
 }
 
@@ -267,16 +287,28 @@ impl ResourceManager {
                 let memory_requirements = unsafe { self.device.get_buffer_memory_requirements(buffer) };
                 unsafe { self.device.destroy_buffer(buffer, None) };
 
-                self.memory_types
+                let memory_type = self.memory_types
                     .iter()
                     .enumerate()
-                    .position(|(i, memory_type)| {
-                        memory_requirements.memory_type_bits & (1 << i) != 0
-                            && memory_type
-                                .property_flags
-                                .contains(vk::MemoryPropertyFlags::DEVICE_LOCAL)
+                    .max_by_key(|(i, memory_type)| {
+                        let mut r = 0;
+                        if memory_requirements.memory_type_bits & (1 << i) != 0 {
+                            r += 100;
+                        }
+                        if memory_type.property_flags.contains(vk::MemoryPropertyFlags::DEVICE_LOCAL) {
+                            r += 10;
+                        }
+                        if memory_type.property_flags.contains(vk::MemoryPropertyFlags::HOST_COHERENT) {
+                            r += 1;
+                        }
+                        if memory_type.property_flags.contains(vk::MemoryPropertyFlags::HOST_VISIBLE) {
+                            r += 1;
+                        }
+                        r
                     })
-                    .unwrap() as u32
+                    .unwrap();
+
+                memory_type.0 as u32
             });
 
         *device_memory_type
@@ -313,9 +345,7 @@ impl ResourceManager {
                     .enumerate()
                     .position(|(i, memory_type)| {
                         memory_requirements.memory_type_bits & (1 << i) != 0
-                            && memory_type
-                                .property_flags
-                                .contains(vk::MemoryPropertyFlags::DEVICE_LOCAL)
+                            && memory_type.property_flags.contains(vk::MemoryPropertyFlags::DEVICE_LOCAL)
                     })
                     .unwrap() as u32
             });
@@ -378,9 +408,13 @@ impl ResourceManager {
         let device_memory_type = self.get_buffer_memory_requirements(usage | BufferUsageFlags::TRANSFER_DST, BufferCreateFlags::empty());
         let memory_type = &self.memory_types[device_memory_type as usize];
         // we can fill buffer immediately without staging buffer if device memory type is HOST_VISIBLE
-        if memory_type.property_flags.contains(vk::MemoryPropertyFlags::HOST_COHERENT) {
-            // Write directly to buffer because we can
-            unsafe {map_and_write_memory(&self.device, buffer.memory, 0, size, data)};
+        if memory_type.property_flags.contains(vk::MemoryPropertyFlags::HOST_VISIBLE) {
+            if memory_type.property_flags.contains(vk::MemoryPropertyFlags::HOST_COHERENT) {
+                unsafe {map_and_write_memory(&self.device, buffer.memory, 0, size, data)};
+            }
+            else {
+                unsafe {map_and_write_memory_non_coherent(&self.device, buffer.memory, 0, size, data)};
+            }
         }
         else {
             // 1) Write data to staging
@@ -531,26 +565,19 @@ impl ResourceManager {
         let image = self.create_image(extent, format, tiling, usage | ImageUsageFlags::TRANSFER_DST, sample_count);
         assert!(data.len() <= image.size as usize);
 
-        let device_memory_type = self.get_image_memory_requirements(tiling, format);
-        let memory_type = &self.memory_types[device_memory_type as usize];
-        // we can fill image immediately without staging buffer if device memory type is HOST_VISIBLE
-        if memory_type.property_flags.contains(vk::MemoryPropertyFlags::HOST_COHERENT) {
-            // Write directly to image memory because we can
-            unsafe {map_and_write_memory(&self.device, image.memory, 0, data.len() as vk::DeviceSize, data)};
-        }
-        else {
-            // 1) Write data to staging
-            let staging_range = self.staging_manager.allocate_and_write(data.len() as vk::DeviceSize, data);
+        // 1) Write data to staging
+        let staging_range = self.staging_manager.allocate_and_write(data.len() as vk::DeviceSize, data);
 
-            // 2) Prepare transfer command
-            let cb = self.command_buffer.current_cb();
-            self.staging_manager.transfer_to_img(
-                staging_range,
-                cb,
-                image,
-                ImageAspectFlags::COLOR,
-            );
-        }
+        // 2) Prepare transfer command
+        let cb = self.command_buffer.current_cb();
+        self.staging_manager.transfer_to_img(
+            staging_range,
+            cb,
+            image,
+            ImageAspectFlags::COLOR,
+        );
+
+        // 3) Transition image layout
         let cb = self.command_buffer.current_cb();
         let image_memory_barrier = [ImageMemoryBarrier::default()
             .src_access_mask(vk::AccessFlags::NONE)

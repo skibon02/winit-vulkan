@@ -106,7 +106,7 @@ impl ObjectResourcePool {
                             info!("Creating new object with id: {}", id);
                             let pipeline_desc = pipeline_desc();
                             let pipeline_entry = self.pipelines.entry(pipeline_desc.id).or_insert_with(|| {
-                                info!("Creating new pipeline with id: {:?}, Desc: {:?}", pipeline_desc.id, &pipeline_desc);
+                                info!("Creating new pipeline with id: {:?}", pipeline_desc.id);
 
                                 let pipeline_desc = pipeline_desc.clone();
                                 let pipeline = VulkanPipeline::new(
