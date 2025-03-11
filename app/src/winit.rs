@@ -1,7 +1,10 @@
-use std::fs;
+use std::{fs, thread};
+use std::ops::Deref;
+use std::thread::JoinHandle;
 use log::{error, info, warn};
 use sparkles_macro::{instant_event, range_event_start};
 use std::time::Instant;
+use sparkles::config::SparklesConfig;
 use sparkles::FinalizeGuard;
 use winit::application::ApplicationHandler;
 use winit::event_loop::{ActiveEventLoop, EventLoopBuilder};
@@ -41,7 +44,11 @@ struct WinitApp {
 
 impl WinitApp {
     fn new() -> Self {
-        let g = sparkles::init_default();
+
+        let g = sparkles::init(SparklesConfig::default()
+            .with_default_udp_sender()
+            .with_flush_threshold(32_000));
+        
         Self { app_state: None, g }
     }
 }
@@ -294,6 +301,12 @@ impl AppState {
                 info!("Mouse left button pressed!");
                 self.scene.mirror_lamp.set_pos([0.0, 0.0]);
                 self.last_touch_pos = [0.0, 0.0];
+                
+                self.scene.trail.create(self.start_time.elapsed().as_millis() as u64  + 10_000, CircleAttributes {
+                    pos: [rand::random_range(-1.0..1.0), rand::random_range(-1.0..1.0)].into(),
+                    color: [1.0, 0.2, 0.4, 1.0].into(),
+                    trig_time: i32::MAX.into(),
+                });
             }
 
             WindowEvent::RedrawRequested => {

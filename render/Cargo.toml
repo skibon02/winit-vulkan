@@ -19,8 +19,8 @@ anyhow = { version = "1.0.86" }
 thiserror = "2.0.1"
 
 # sparkles
-sparkles = "0.1.4"
-sparkles-macro = "0.1.4"
+sparkles = { version = "0.1.6", git="https://github.com/skibon02/sparkles.git" , default-features = false}
+sparkles-macro = { version = "0.1.5", git="https://github.com/skibon02/sparkles.git"}
 
 image = "0.25.2"
 raw-window-handle = { version = "0.6.2", features = ["std", "alloc"] }

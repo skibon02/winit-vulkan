@@ -1,5 +1,6 @@
 [workspace]
 members = ["app", "render", "render-core", "render-macro"]
+exclude = ["profiler"]
 resolver = "2"
 
 [profile.release]

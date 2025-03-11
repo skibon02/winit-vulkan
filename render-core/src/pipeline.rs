@@ -1,9 +1,8 @@
 use std::any::TypeId;
 use ash::vk;
-use ash::vk::{Format, PipelineVertexInputStateCreateInfo, VertexInputAttributeDescription, VertexInputBindingDescription};
+use ash::vk::{PipelineVertexInputStateCreateInfo, VertexInputAttributeDescription, VertexInputBindingDescription};
 use smallvec::{smallvec, SmallVec};
 use crate::layout::{LayoutInfo, MemberMeta};
-use crate::layout::types::GlslTypeVariant;
 use crate::object_handles::UniformResourceId;
 
 #[derive(Debug, Copy, Clone)]

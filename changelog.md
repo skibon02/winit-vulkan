@@ -21,6 +21,9 @@ A place where every action with the project is tracked.
 ⚙️ Implement static scene optimization for same pipeline objects (instanced rendering)  
 ⚙️ Explore event handling
 
+## Known issues
+- Fullscreen is not working on Wayland
+
 ## Done
 ### 18.02.2025
 ✅ support 2 in-flight frames

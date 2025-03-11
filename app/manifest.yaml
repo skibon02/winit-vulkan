@@ -1,6 +1,8 @@
 android:
   manifest:
     package: "com.skygrel19.winit_vulkan"
+    uses_permission:
+      - name: "android.permission.INTERNET"
     sdk:
       min_sdk_version: 24
       target_sdk_version: 33

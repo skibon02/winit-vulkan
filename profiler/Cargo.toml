@@ -1,0 +1,14 @@
+[package]
+name = "profiler"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+sparkles-parser = { version="0.1.1", git="https://github.com/skibon02/sparkles.git"}
+log = "0.4.26"
+simple_logger = "5.0.0"
+egui = "0.31.1"
+plot = "0.2.0"
+eframe = "0.31.1"
+egui_plot = "0.31.0"
+ringbuf = "0.4.7"
