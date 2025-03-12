@@ -24,7 +24,7 @@ use crate::scene::uniforms::Time;
 
 fn sparkles_init() -> FinalizeGuard{
     sparkles::init(SparklesConfig::default()
-        .with_default_udp_sender()
+        .with_udp_multicast()
         .with_thread_flush_attempt_threshold(2_000)
         .with_flush_threshold(2_000))
 }

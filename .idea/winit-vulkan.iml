@@ -7,6 +7,7 @@
       <sourceFolder url="file://$MODULE_DIR$/render-macro/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/render/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/profiler/src" isTestSource="false" />
+      <excludeFolder url="file://$MODULE_DIR$/profiler/target" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />
