@@ -22,18 +22,27 @@ use crate::scene::circle::{CircleAttributes, CircleAttributesExt};
 use crate::scene::Scene;
 use crate::scene::uniforms::Time;
 
+fn sparkles_init() -> FinalizeGuard{
+    sparkles::init(SparklesConfig::default()
+        .with_default_udp_sender()
+        .with_thread_flush_attempt_threshold(2_000)
+        .with_flush_threshold(2_000))
+}
 #[cfg(target_os = "android")]
 pub fn run_android(app: AndroidApp) {
     use crate::android::android_main;
+    
+    let g = sparkles_init();
     let event_loop = android_main(app);
-    let mut winit_app: WinitApp = WinitApp::new();
+    let mut winit_app: WinitApp = WinitApp::new(g);
     event_loop.run_app(&mut winit_app).unwrap();
 }
 
 #[cfg(not(target_os = "android"))]
 pub fn run() {
+    let g = sparkles_init();
     let event_loop = EventLoop::new().unwrap();
-    let mut winit_app: WinitApp = WinitApp::new();
+    let mut winit_app: WinitApp = WinitApp::new(g);
     event_loop.run_app(&mut winit_app).unwrap();
 }
 
@@ -43,11 +52,7 @@ struct WinitApp {
 }
 
 impl WinitApp {
-    fn new() -> Self {
-
-        let g = sparkles::init(SparklesConfig::default()
-            .with_default_udp_sender()
-            .with_flush_threshold(32_000));
+    fn new(g: FinalizeGuard) -> Self {
         
         Self { app_state: None, g }
     }
@@ -290,9 +295,14 @@ impl AppState {
                     (t.location.y as f32 / self.window.inner_size().height as f32) * 2.0 - 1.0,
                 ];
                 self.last_touch_pos = pos;
-                self.scene.mirror_lamp.set_pos([-pos[0], -pos[1]])
+                self.scene.mirror_lamp.set_pos([-pos[0], -pos[1]]);
+                
+                self.scene.trail.create(self.start_time.elapsed().as_millis() as u64  + 10_000, CircleAttributes {
+                    pos: pos.into(),
+                    color: [1.0, 0.2, 0.4, 1.0].into(),
+                    trig_time: i32::MAX.into(),
+                });
             }
-
             WindowEvent::MouseInput {
                 state: ElementState::Pressed,
                 button: MouseButton::Left,

@@ -24,7 +24,7 @@ anyhow = { version = "1.0.86" }
 thiserror = "2.0.1"
 
 # sparkles
-sparkles = { version = "0.1.6", git="https://github.com/skibon02/sparkles.git" , default-features = false}
+sparkles = { version = "0.1.6", git = "https://github.com/skibon02/sparkles.git"}
 sparkles-macro = { version = "0.1.5", git="https://github.com/skibon02/sparkles.git"}
 lazy_static = "1.5.0"
 
