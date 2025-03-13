@@ -1,9 +1,13 @@
 use std::collections::BTreeMap;
+use std::net::SocketAddr;
 use std::ops::Deref;
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
+use std::time::Duration;
+use drop_guard::guard;
 use egui_plot::{Plot, BarChart, Bar, PlotItem};
-use log::{info, LevelFilter};
+use log::{info, warn, LevelFilter};
 use ringbuf::consumer::Consumer;
 use ringbuf::LocalRb;
 use ringbuf::producer::Producer;
@@ -47,10 +51,15 @@ impl BufferedHistogram {
 
 struct FrameTimeApp {
     histogram: Arc<Mutex<BufferedHistogram>>,
+    // disconnected: Arc<AtomicBool>,
 }
 
 impl eframe::App for FrameTimeApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // if self.disconnected.load(Ordering::Relaxed) {
+        //     
+        // }
+        
         let data = self.histogram.lock().unwrap().get_sorted();
 
         let max_len = data.iter().map(|(_, v)| v.len()).max().unwrap_or(0);
@@ -98,24 +107,52 @@ impl eframe::App for FrameTimeApp {
 
 fn main() {
     SimpleLogger::new().with_level(LevelFilter::Info).with_module_level("sparkles_parser", LevelFilter::Warn).init().unwrap();
-        
-    let mut addr = std::env::args().nth(1).unwrap_or("127.0.0.1".to_string());
-    if !addr.contains(":") {
-        addr.push_str(":38338");
-    }
 
-    let capacity = std::env::args().nth(2).unwrap_or("10000".to_string());
-    let capacity = capacity.parse().unwrap();
-
-    let histogram = Arc::new(Mutex::new(BufferedHistogram::new(capacity))); // Start with empty histogram
-    let hist_clone = Arc::clone(&histogram);
-
-
+    // Client discovery channel
+    let (new_client_tx, new_client_rx) = mpsc::sync_channel(1);
     thread::spawn(move || {
         loop {
+            thread::sleep(Duration::from_secs(3));
+            match sparkles_parser::discover_local_udp_clients() {
+                Ok(r) => {
+                    for addr in r {
+                        new_client_tx.send(addr).unwrap();
+                    }
+                }
+                Err(e) => {
+                    warn!("Error discovering clients: {:?}", e);
+                }
+            }
+        }
+    });
+
+    let capacity = std::env::args().nth(2).unwrap_or("2000".to_string());
+    let capacity = capacity.parse().unwrap();
+
+    // static CONNECTED_CLIENTS: Mutex<Vec<SocketAddr>> = Mutex::new(Vec::new());
+    while let Ok(addr) =  new_client_rx.recv() {
+        // if CONNECTED_CLIENTS.lock().unwrap().contains(&addr) {
+        //     continue;
+        // }
+
+        // CONNECTED_CLIENTS.lock().unwrap().push(addr);
+        let histogram = Arc::new(Mutex::new(BufferedHistogram::new(capacity))); // Start with empty histogram
+        let hist_clone = Arc::clone(&histogram);
+
+        // let disconnected = Arc::new(AtomicBool::new(false));
+        // let disconnected_c = disconnected.clone();
+        thread::spawn(move || {
             let decoder = PacketDecoder::from_socket(addr.clone());
             let mut sparkles_parser = sparkles_parser::SparklesParser::new();
 
+            // let g = guard((), |()| {
+            //     let mut clients = CONNECTED_CLIENTS.lock().unwrap();
+            //     let i = clients.iter().position(|a| a == &addr);
+            //     if let Some(i) = i {
+            //         clients.swap_remove(i);
+            //     }
+            //     disconnected.store(true, Ordering::Relaxed);
+            // });
             sparkles_parser.parse_to_end(decoder, |event, thread_info| {
                 match event {
                     ParsedEvent::Range {
@@ -132,13 +169,16 @@ fn main() {
                     _ => {}
                 }
             }).unwrap();
-        }
-    });
+        });
 
-    let options = eframe::NativeOptions::default();
-    eframe::run_native(
-        "Frame Time Graph",
-        options,
-        Box::new(|_cc| Ok(Box::new(FrameTimeApp { histogram }))),
-    ).unwrap()
+        let mut options = eframe::NativeOptions::default();
+        eframe::run_native(
+            &addr.to_string(),
+            options,
+            Box::new(|_cc| Ok(Box::new(FrameTimeApp { 
+                histogram, 
+                // disconnected: disconnected_c
+            }))),
+        ).unwrap();
+    }
 }

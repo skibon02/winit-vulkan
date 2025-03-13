@@ -914,6 +914,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f25c0e292a7ca6d6498557ff1df68f32c99850012b6ea401cf8daf771f22ff53"
 
 [[package]]
+name = "drop_guard"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2c4a817d8b683f6e649aed359aab0c47a875377516bb5791d0f7e46d9066d209"
+
+[[package]]
 name = "ecolor"
 version = "0.31.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2553,6 +2559,7 @@ dependencies = [
 name = "profiler"
 version = "0.1.0"
 dependencies = [
+ "drop_guard",
  "eframe",
  "egui",
  "egui_plot",
@@ -3003,7 +3010,7 @@ dependencies = [
 [[package]]
 name = "sparkles-core"
 version = "0.1.5"
-source = "git+https://github.com/skibon02/sparkles.git#64350c34490de44d6e472a90eca0fd67b62d5444"
+source = "git+https://github.com/skibon02/sparkles.git#a4e8fee9499a8c155bc87da9a76ece496c30665f"
 dependencies = [
  "bincode",
  "enumset",
@@ -3013,7 +3020,7 @@ dependencies = [
 [[package]]
 name = "sparkles-parser"
 version = "0.1.1"
-source = "git+https://github.com/skibon02/sparkles.git#64350c34490de44d6e472a90eca0fd67b62d5444"
+source = "git+https://github.com/skibon02/sparkles.git#a4e8fee9499a8c155bc87da9a76ece496c30665f"
 dependencies = [
  "bincode",
  "chrono",
