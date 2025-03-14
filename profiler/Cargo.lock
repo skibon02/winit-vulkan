@@ -705,6 +705,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "colors-transform"
+version = "0.2.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9226dbc05df4fb986f48d730b001532580883c4c06c5d1c213f4b34c1c157178"
+
+[[package]]
 name = "combine"
 version = "4.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2559,6 +2565,7 @@ dependencies = [
 name = "profiler"
 version = "0.1.0"
 dependencies = [
+ "colors-transform",
  "drop_guard",
  "eframe",
  "egui",
@@ -2566,6 +2573,7 @@ dependencies = [
  "log",
  "plot",
  "ringbuf",
+ "sha2",
  "simple_logger",
  "sparkles-parser",
 ]
@@ -2893,6 +2901,17 @@ name = "sha1"
 version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3bf829a2d51ab4a5ddf1352d8470c140cadc8301b2ae1789db023f01cedd6ba"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "digest",
+]
+
+[[package]]
+name = "sha2"
+version = "0.10.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "793db75ad2bcafc3ffa7c68b215fee268f537982cd901d132f89c6343f3a3dc8"
 dependencies = [
  "cfg-if",
  "cpufeatures",
