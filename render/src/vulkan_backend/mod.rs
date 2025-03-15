@@ -11,10 +11,8 @@ use swapchain_wrapper::SwapchainWrapper;
 
 use log::{debug, error, info, warn};
 
-use ash::vk::{self, make_api_version, ApplicationInfo, BufferUsageFlags, CommandBuffer, CommandBufferBeginInfo, DeviceSize, Event, EventCreateFlags, EventCreateInfo, Extent2D, FenceCreateFlags, PhysicalDevice, PipelineBindPoint, PipelineStageFlags, PrimitiveTopology, Queue, RenderPassBeginInfo, Semaphore};
+use ash::vk::{self, make_api_version, ApplicationInfo, BufferUsageFlags, CommandBuffer, CommandBufferBeginInfo, DeviceSize, Event, EventCreateFlags, EventCreateInfo, Extent2D, FenceCreateFlags, PhysicalDevice, PipelineBindPoint, PipelineStageFlags, PrimitiveTopology, QueryPool, QueryPoolCreateInfo, Queue, RenderPassBeginInfo, Semaphore};
 
-use crate::vulkan_backend::descriptor_sets::ObjectDescriptorSet;
-use crate::vulkan_backend::pipeline::{VulkanPipeline};
 use crate::vulkan_backend::render_pass::RenderPassResources;
 use crate::vulkan_backend::resource_manager::{BufferResource, ResourceManager};
 use crate::vulkan_backend::wrappers::capabilities_checker::CapabilitiesChecker;
@@ -24,13 +22,13 @@ use crate::vulkan_backend::wrappers::device::VkDeviceRef;
 use crate::vulkan_backend::wrappers::surface::{VkSurface, VkSurfaceRef};
 use render_pass::RenderPassWrapper;
 use sparkles_macro::{instant_event, range_event_start};
-use std::array::from_fn;
 use std::ffi::{c_char, CString};
 use std::time::Instant;
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 use render_core::collect_state::CollectDrawStateUpdates;
 use crate::vulkan_backend::config::VulkanRenderConfig;
 use crate::vulkan_backend::object_resource_pool::ObjectResourcePool;
+use crate::vulkan_backend::wrappers::timestamp_pool::TimestampPool;
 
 pub struct SyncSet {
     command_buffer: CommandBuffer,
@@ -70,6 +68,9 @@ pub struct VulkanBackend {
     // stuff for actual rendering
     render_pass: RenderPassWrapper,
     render_pass_resources: RenderPassResources,
+
+    timestamp_query_support: bool,
+    timestamp_pool: Option<TimestampPool>
 }
 
 impl VulkanBackend {
@@ -190,6 +191,9 @@ impl VulkanBackend {
             &mut device_create_info,
         )?;
 
+        let device_properties = unsafe { instance.get_physical_device_properties(physical_device) };
+        let device_limits = device_properties.limits;
+
         let queue = unsafe { device.get_device_queue(queue_family_index, 0) };
         let command_pool = VkCommandPool::new(device.clone(), queue_family_index);
 
@@ -255,6 +259,17 @@ impl VulkanBackend {
 
         let object_resource_pool = ObjectResourcePool::new(device.clone());
 
+        let timestamp_query_support = device_limits.timestamp_period != 0.0 && device_limits.timestamp_compute_and_graphics != 0
+        && queue_family_properties[queue_family_index as usize].timestamp_valid_bits != 0;
+        let timestamp_pool = if !timestamp_query_support {
+            warn!("Timestamp query is not supported!");
+            None
+        }
+        else {
+            let res = TimestampPool::new(device.clone(), 10, device_limits.timestamp_period);
+            res
+        };
+
 
         Ok(VulkanBackend {
             config,
@@ -278,6 +293,9 @@ impl VulkanBackend {
 
             render_pass,
             render_pass_resources,
+
+            timestamp_query_support,
+            timestamp_pool,
         })
     }
 
@@ -368,6 +386,11 @@ impl VulkanBackend {
             warn!("Swapchain is suboptimal!");
         }
 
+        // query last timestamps
+        if let Some(dur) = self.timestamp_pool.as_mut().unwrap().read_timestamps(0) {
+            info!("GPU draw time: {}ms", dur);
+        }
+
         // 1.1) Ensure last transfer was finished and staging buffers can be reused
         unsafe {
             let prev_ev = prev_sync_set.transfer_finished_ev;
@@ -392,7 +415,8 @@ impl VulkanBackend {
             self.device
                 .begin_command_buffer(cur_command_buffer, &command_buffer_begin_info)
                 .unwrap();
-            
+            self.timestamp_pool.as_mut().unwrap().write_start_timestamp(cur_command_buffer, 0);
+
             self.device.cmd_set_event(cur_command_buffer, cur_transfer_finish_ev, PipelineStageFlags::TRANSFER);
         }
 
@@ -509,6 +533,7 @@ impl VulkanBackend {
                 &[],
                 &[],
             );
+            self.timestamp_pool.as_mut().unwrap().write_end_timestamp(command_buffer, 1);
             device.end_command_buffer(command_buffer).unwrap();
         }
     }

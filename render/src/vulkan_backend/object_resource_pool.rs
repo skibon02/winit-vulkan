@@ -84,7 +84,7 @@ impl ObjectResourcePool {
         }
     }
 
-    pub fn update_objects<'a>(&mut self, resource_manager: &mut ResourceManager,
+    pub fn update_objects(&mut self, resource_manager: &mut ResourceManager,
                               draw_state_updates: &mut impl CollectDrawStateUpdates,
                               render_pass: &RenderPassWrapper) {
         // 1) perform updates
