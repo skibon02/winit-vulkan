@@ -3,66 +3,102 @@ use std::net::SocketAddr;
 use std::ops::Deref;
 use std::sync::{mpsc, Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread;
+use std::{cmp, mem, thread};
 use std::time::Duration;
 use colors_transform::{Color, Hsl};
 use drop_guard::guard;
-use egui::Color32;
+use egui::{Color32, Frame};
 use egui_plot::{Plot, BarChart, Bar, PlotItem};
 use log::{info, warn, LevelFilter};
 use ringbuf::consumer::Consumer;
 use ringbuf::LocalRb;
 use ringbuf::producer::Producer;
 use ringbuf::storage::Heap;
-use ringbuf::traits::Observer;
+use ringbuf::traits::{Observer, RingBuffer};
 use sha2::Digest;
 use sparkles_parser::packet_decoder::PacketDecoder;
 use sparkles_parser::parsed::ParsedEvent;
 use simple_logger::SimpleLogger;
 
-struct BufferedHistogram {
-    data: BTreeMap<Arc<str>, LocalRb<Heap<(u64, u64)>>>,
-    capacity: usize,
-    cur_frame: u64,
+
+#[derive(Default, Clone)]
+struct FrameTimeSample {
+    name: Arc<str>,
+    start: u64,
+    dur: u64,
+    inner: Vec<FrameTimeSample>
 }
 
+impl PartialEq for FrameTimeSample {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+impl PartialOrd for FrameTimeSample {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        self.dur.partial_cmp(&other.dur)
+    }
+}
+
+impl Eq for FrameTimeSample {}
+impl Ord for FrameTimeSample {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.dur.cmp(&other.dur)
+    }
+}
+struct BufferedHistogram {
+    data: LocalRb<Heap<FrameTimeSample>>,
+    cur_frame: u64,
+    frame_time_sum: u64,
+    max_start: u64,
+}
+
+const TIME_BUFFER_S: f64 = 2.5;
 impl BufferedHistogram {
-    pub fn new(capacity: usize) -> Self {
+    pub fn new() -> Self {
         Self {
-            capacity,
-            data: BTreeMap::new(),
+            data: LocalRb::new(10_000),
             cur_frame: 0,
+            frame_time_sum: 0,
+            max_start: 0,
         }
     }
-    fn push(&mut self, name: Arc<str>, value: u64, cur_frame: u64) {
-        let entry = self.data.entry(name).or_insert_with(|| LocalRb::new(self.capacity));
-        if entry.occupied_len() == self.capacity {
-            entry.try_pop();
+    fn push(&mut self, sample: FrameTimeSample) {
+        self.frame_time_sum += sample.dur;
+        self.max_start = sample.start;
+        self.cur_frame += 1;
+        if let Some(removed) = self.data.push_overwrite(sample) {
+            self.frame_time_sum -= removed.dur;
         }
-        entry.try_push((value, cur_frame)).unwrap();
 
-        self.cur_frame = cur_frame;
-    }
-    
-    fn get_sorted(&self) -> Vec<(Arc<str>, Vec<(u64, u64)>)> {
-        self.data.iter().map(|v| {
-            let data = v.1.as_slices();
-            let mut res = Vec::with_capacity(data.0.len() + data.1.len());
-            res.extend_from_slice(data.0);
-            res.extend_from_slice(data.1);
-            res.sort();
-            (v.0.clone(), res)
-        }).collect()
+        self.cleanup_if_needed();
     }
 
-    fn get_unsorted(&self) -> Vec<(Arc<str>, Vec<(u64, u64)>)> {
-        self.data.iter().map(|v| {
-            let data = v.1.as_slices();
-            let mut res = Vec::with_capacity(data.0.len() + data.1.len());
-            res.extend_from_slice(data.0);
-            res.extend_from_slice(data.1);
-            (v.0.clone(), res)
-        }).collect()
+    fn cleanup_if_needed(&mut self) {
+        let mut cnt = 0;
+        
+        for sample in self.data.iter_mut() {
+            if sample.start as f64 + TIME_BUFFER_S * 1_000_000_000.0 < self.max_start as f64 {
+                cnt += 1;
+            }
+            else {
+                break;
+            }
+        }
+        
+        for _ in 0..cnt {
+            if let Some(removed) = self.data.try_pop() {
+                self.frame_time_sum -= removed.dur;
+            }
+        }
+    }
+
+    fn get_unsorted(&self) -> Vec<FrameTimeSample> {
+        let data = self.data.as_slices();
+        let mut res = Vec::with_capacity(data.0.len() + data.1.len());
+        res.extend_from_slice(data.0);
+        res.extend_from_slice(data.1);
+        res
     }
 
     fn cur_frame(&self) -> usize {
@@ -93,85 +129,80 @@ fn color_from_name(name: &str) -> (u8, u8, u8) {
 
 impl eframe::App for FrameTimeApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // if self.disconnected.load(Ordering::Relaxed) {
-        //     
-        // }
+        let mut unsorted_data = self.histogram.lock().unwrap().get_unsorted();
         
-        let sorted_data = self.histogram.lock().unwrap().get_sorted();
-        let unsorted_data = self.histogram.lock().unwrap().get_unsorted();
-        let cur_frame = self.histogram.lock().unwrap().cur_frame();
+        let unsorted_height_scale = 0.5;
+        let max_i = unsorted_data.len();
+        let max_start = unsorted_data.iter().map(|s| s.start).max().unwrap_or(0);
+        let mut unsorted_bars = BTreeMap::new();
+        unsorted_data.iter().enumerate().for_each(|(i, sample)| {
+            let cur_pos = i as f64 / max_i as f64 * 100.0;
+            let freshness = (max_start - sample.start) as f64 / 1000_000_000.0;
+            // interpolate alpha 0.4 to 1.0 for freshness 1.0 to 0.0
+            let alpha = 1.0 - (freshness % 1.0 * 0.8);
 
-        let max_len = sorted_data.iter().map(|(_, v)| v.len()).max().unwrap_or(0);
-        let mut offsets = vec![0.0; max_len];
-
-        let sorted_charts: Vec<_> = sorted_data.iter().filter_map(|(name, samples)| {
-            let i_offset = max_len - samples.len();
-            if i_offset > 0 {
-                return None;
+            for inner in &sample.inner {
+                let name = inner.name.clone();
+                let (r, g, b) = color_from_name(&name);
+                let bars: &mut Vec<_> = unsorted_bars.entry(name).or_default();
+                let bar_height = inner.dur as f64 / 1000.0 * unsorted_height_scale * -1.0;
+                let bar_start = (inner.start - sample.start) as f64 / 1000.0 * unsorted_height_scale * -1.0;
+                let bar = Bar::new(cur_pos, bar_height)
+                    .base_offset(bar_start)
+                    .width(1.0 / max_i as f64 * 100.0)
+                    .fill(Color32::from_rgba_unmultiplied(r, g, b, (alpha * 255.0) as u8));
+                bars.push(bar);
             }
+        });
+        
+        unsorted_data.sort();
+        
+        let mut sorted_bars = BTreeMap::new();
+        // now sorted
+        unsorted_data.iter().enumerate().for_each(|(i, sample)| {
+            let cur_pos = i as f64 / max_i as f64 * 100.0;
+            let freshness = (max_start - sample.start) as f64 / 1000_000_000.0;
+            
+            // interpolate alpha 0.4 to 1.0 for freshness 1.0 to 0.0
+            let alpha = 1.0 - (freshness / TIME_BUFFER_S * 0.9);
 
-            // generate color based on name
-            let (r, g, b) = color_from_name(name);
-
-            let max_start = samples.iter().map(|(_, start)| *start).max().unwrap();
-            let min_start = samples.iter().map(|(_, start)| *start).min().unwrap();
-            let bars = samples.iter().enumerate()
-                .map(|(i, (dur, start))| {
-                    let alpha = ((start - min_start) as f64 / (max_start - min_start) as f64 * 250.0) as u8;
-                    let i = i + i_offset;
-                    let res = Bar::new(i as f64, *dur as f64 / 1000.0)
-                        .base_offset(offsets[i])
-                        .fill(Color32::from_rgba_unmultiplied(r, g, b, alpha));
-                    offsets[i] += *dur as f64 / 1000.0;
-
-                    res
-                })
-                .take(max_len / 100 * 99)
-                .collect();
-
-            let name_clone = name.clone();
-            Some(BarChart::new(bars)
-                // show name
+            for inner in &sample.inner {
+                let name = inner.name.clone();
+                let (r, g, b) = color_from_name(&name);
+                let bars: &mut Vec<_> = sorted_bars.entry(name).or_default();
+                let bar_height = inner.dur as f64 / 1000.0;
+                let bar_start = (inner.start - sample.start) as f64 / 1000.0;
+                let bar = Bar::new(cur_pos, bar_height)
+                    .base_offset(bar_start)
+                    .width(1.0 / max_i as f64 * 100.0)
+                    .fill(Color32::from_rgba_unmultiplied(r, g, b, (alpha * 255.0) as u8));
+                bars.push(bar);
+            }
+        });
+        
+        let unsorted_charts = unsorted_bars.into_iter().map(|(name, bars)| {
+            BarChart::new(bars)
+                .name(&name)
                 .element_formatter(Box::new(move |b, _| {
-                    format!("{} - {}us", name_clone, b.value)
+                    format!("{} - {}us", name, b.value / unsorted_height_scale)
                 }))
-                .name(name))
-        }).collect();
-
-        let mut offsets = vec![0.0; max_len];
-        let unsorted_charts: Vec<_> = unsorted_data.iter().filter_map(|(name, samples)| {
-            let (r, g, b) = color_from_name(name);
-
-            let min_i = cur_frame.saturating_sub(max_len.saturating_sub(1)); // current buffer is from min_i to cur_frame
-            let bars = samples.iter()
-                .filter(|(_, i)| *i as usize >= min_i)
-                .map(|(dur, i)| {
-                    let offsets_i = *i as usize - min_i;
-
-                    let i = *i as usize;
-                    let alpha = 55 + (offsets_i as f64 / max_len as f64 * 200.0) as u8;
-                    let res = Bar::new((i % (max_len * 2)) as f64, *dur as f64 / -1000.0 * 0.5)
-                        .base_offset(offsets[offsets_i])
-                        .fill(Color32::from_rgba_unmultiplied(r, g, b, alpha));
-                    offsets[offsets_i] -= *dur as f64 / 1000.0 * 0.5;
-                    res
-                }).collect();
-
-            let name_clone = name.clone();
-            Some(BarChart::new(bars)
+        }).collect::<Vec<_>>();
+        
+        let sorted_charts = sorted_bars.into_iter().map(|(name, bars)| {
+            BarChart::new(bars)
+                .name(&name)
                 .element_formatter(Box::new(move |b, _| {
-                    format!("{} - {}us", name_clone, b.value * 2.0)
+                    format!("{} - {}us", name, b.value)
                 }))
-                .name(name))
-        }).collect();
+        }).collect::<Vec<_>>();
 
         egui::CentralPanel::default().show(ctx, |ui| {
             Plot::new("Frame Time Histogram")
                 .show(ui, |plot_ui| {
-                    for chart in sorted_charts {
+                    for chart in unsorted_charts {
                         plot_ui.bar_chart(chart);
                     }
-                    for chart in unsorted_charts {
+                    for chart in sorted_charts {
                         plot_ui.bar_chart(chart);
                     }
                 });
@@ -202,9 +233,6 @@ fn main() {
         }
     });
 
-    let capacity = std::env::args().nth(2).unwrap_or("10000".to_string());
-    let capacity = capacity.parse().unwrap();
-
     // static CONNECTED_CLIENTS: Mutex<Vec<SocketAddr>> = Mutex::new(Vec::new());
     while let Ok(addr) =  new_client_rx.recv() {
         // if CONNECTED_CLIENTS.lock().unwrap().contains(&addr) {
@@ -212,7 +240,7 @@ fn main() {
         // }
 
         // CONNECTED_CLIENTS.lock().unwrap().push(addr);
-        let histogram = Arc::new(Mutex::new(BufferedHistogram::new(capacity))); // Start with empty histogram
+        let histogram = Arc::new(Mutex::new(BufferedHistogram::new())); // Start with empty histogram
         let hist_clone = Arc::clone(&histogram);
 
         // let disconnected = Arc::new(AtomicBool::new(false));
@@ -230,7 +258,7 @@ fn main() {
             //     disconnected.store(true, Ordering::Relaxed);
             // });
 
-            let mut frame = 0;
+            let mut stored_samples = Vec::new();
             sparkles_parser.parse_to_end(decoder, |event, thread_info| {
                 match event {
                     ParsedEvent::Range {
@@ -240,11 +268,24 @@ fn main() {
                     } => {
                         if name.contains("Vulkan") && !name.contains("render") {
                             let dur = *end - *start;
-                            let mut hist = hist_clone.lock().unwrap();
-                            hist.push(Arc::from(name.deref()), dur, frame);
+                            let cur_sample = FrameTimeSample {
+                                inner: Vec::new(),
+                                start: *start,
+                                dur,
+                                name: Arc::from(name.clone().deref())
+                            };
+                            stored_samples.push(cur_sample);
                         }
                         else if name.contains("render") {
-                            frame += 1;
+                            let dur = *end - *start;
+                            let cur_sample = FrameTimeSample {
+                                inner: mem::take(&mut stored_samples),
+                                start: *start,
+                                dur,
+                                name: Arc::from(name.clone().deref())
+                            };
+                            let mut hist = hist_clone.lock().unwrap();
+                            hist.push(cur_sample);
                         }
                     }
                     _ => {}

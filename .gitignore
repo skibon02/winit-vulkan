@@ -1,3 +1,5 @@
 target
 trace
 trace.perf
+/.idea/*
+!/.idea/runConfigurations

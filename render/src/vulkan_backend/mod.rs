@@ -387,9 +387,9 @@ impl VulkanBackend {
         }
 
         // query last timestamps
-        if let Some(dur) = self.timestamp_pool.as_mut().unwrap().read_timestamps(0) {
-            info!("GPU draw time: {}ms", dur);
-        }
+        // if let Some(dur) = self.timestamp_pool.as_mut().unwrap().read_timestamps(0) {
+        //     info!("GPU draw time: {}ms", dur);
+        // }
 
         // 1.1) Ensure last transfer was finished and staging buffers can be reused
         unsafe {
