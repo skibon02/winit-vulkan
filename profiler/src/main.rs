@@ -4,15 +4,15 @@ use std::ops::Deref;
 use std::sync::{mpsc, Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{cmp, mem, thread};
+use std::sync::mpsc::TrySendError;
 use std::time::Duration;
 use colors_transform::{Color, Hsl};
 use drop_guard::guard;
-use egui::{Color32, Frame};
-use egui_plot::{Plot, BarChart, Bar, PlotItem};
-use log::{info, warn, LevelFilter};
+use egui::{Color32, Rangef, TextStyle, ViewportCommand};
+use egui_plot::{Plot, BarChart, Bar, Legend, log_grid_spacer};
+use log::{warn, LevelFilter};
 use ringbuf::consumer::Consumer;
 use ringbuf::LocalRb;
-use ringbuf::producer::Producer;
 use ringbuf::storage::Heap;
 use ringbuf::traits::{Observer, RingBuffer};
 use sha2::Digest;
@@ -49,8 +49,8 @@ impl Ord for FrameTimeSample {
 struct BufferedHistogram {
     data: LocalRb<Heap<FrameTimeSample>>,
     cur_frame: u64,
-    frame_time_sum: u64,
     max_start: u64,
+    ovh_samples: LocalRb<Heap<(f64, f64)>>
 }
 
 const TIME_BUFFER_S: f64 = 2.5;
@@ -59,17 +59,14 @@ impl BufferedHistogram {
         Self {
             data: LocalRb::new(10_000),
             cur_frame: 0,
-            frame_time_sum: 0,
             max_start: 0,
+            ovh_samples: LocalRb::new(100),
         }
     }
     fn push(&mut self, sample: FrameTimeSample) {
-        self.frame_time_sum += sample.dur;
         self.max_start = sample.start;
         self.cur_frame += 1;
-        if let Some(removed) = self.data.push_overwrite(sample) {
-            self.frame_time_sum -= removed.dur;
-        }
+        self.data.push_overwrite(sample);
 
         self.cleanup_if_needed();
     }
@@ -87,9 +84,7 @@ impl BufferedHistogram {
         }
         
         for _ in 0..cnt {
-            if let Some(removed) = self.data.try_pop() {
-                self.frame_time_sum -= removed.dur;
-            }
+            self.data.try_pop();
         }
     }
 
@@ -101,14 +96,57 @@ impl BufferedHistogram {
         res
     }
 
-    fn cur_frame(&self) -> usize {
-        self.cur_frame as usize
+    pub fn add_overhead(&mut self, start: f64, dur: f64) {
+        self.ovh_samples.push_overwrite((start, dur));
     }
+
+    // FPS, 1% low, sparkles flushing overhead, sparkles event overhead
+    fn cur_stats(&self) -> (f64, f64, f64, f64) {
+        if self.data.is_empty() {
+            return (0., 0., 0., 0.0);
+        }
+        let mut frame_times = self.data.iter().map(|s| s.dur as f64 / 1000.0).collect::<Vec<_>>();
+        frame_times.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let frame_time_sum: f64 = frame_times.iter().sum();
+        let low_1_frame_time = frame_times[((frame_times.len() as f64 - 1.) * 0.99) as usize];
+        let avg_frame_time = frame_time_sum / self.data.occupied_len() as f64;
+
+        // calculate overhead for last 1 sec
+        let cur_time = self.max_start;
+        let mut total_dur = 0.0;
+        for (start, dur) in self.ovh_samples.iter().rev() {
+            if *start + 1_000_000_000.0 < cur_time as f64 {
+                continue;
+            }
+
+            total_dur += dur;
+        }
+
+        let mut event_cnt = 0;
+        let mut min_ovh = 999999999.0;
+        for sample in self.data.iter() {
+            if sample.start as f64 + 1_000_000_000.0 < cur_time as f64 {
+                continue;
+            }
+
+            event_cnt += (1 + sample.inner.len()) * 2 + 6;
+            if let Some(v) = sample.inner.iter().find(|i| i.name.deref() == "[Vulkan] Queue present") {
+                let cur_ovh = sample.start + sample.dur - v.start - v.dur;
+                if (cur_ovh as f64) < min_ovh {
+                    min_ovh = cur_ovh as f64;
+                }
+            }
+        }
+        let event_ovh = min_ovh * event_cnt as f64;
+
+        (avg_frame_time, low_1_frame_time, total_dur / 1_000_000_000.0, event_ovh / 1_000_000_000.0)
+    }
+
 }
 
 struct FrameTimeApp {
     histogram: Arc<Mutex<BufferedHistogram>>,
-    // disconnected: Arc<AtomicBool>,
+    disconnected: Arc<AtomicBool>,
 }
 
 fn color_from_name(name: &str) -> (u8, u8, u8) {
@@ -129,6 +167,10 @@ fn color_from_name(name: &str) -> (u8, u8, u8) {
 
 impl eframe::App for FrameTimeApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if self.disconnected.load(Ordering::Relaxed) {
+            ctx.send_viewport_cmd(ViewportCommand::Close);
+        }
+
         let mut unsorted_data = self.histogram.lock().unwrap().get_unsorted();
         
         let unsorted_height_scale = 0.5;
@@ -137,7 +179,7 @@ impl eframe::App for FrameTimeApp {
         let mut unsorted_bars = BTreeMap::new();
         unsorted_data.iter().enumerate().for_each(|(i, sample)| {
             let cur_pos = i as f64 / max_i as f64 * 100.0;
-            let freshness = (max_start - sample.start) as f64 / 1000_000_000.0;
+            let freshness = (max_start - sample.start) as f64 / 1_000_000_000.0;
             // interpolate alpha 0.4 to 1.0 for freshness 1.0 to 0.0
             let alpha = 1.0 - (freshness % 1.0 * 0.8);
 
@@ -181,23 +223,52 @@ impl eframe::App for FrameTimeApp {
         });
         
         let unsorted_charts = unsorted_bars.into_iter().map(|(name, bars)| {
+            let (r,g,b) = color_from_name(&name);
             BarChart::new(bars)
                 .name(&name)
+                .color(Color32::from_rgb(r,g,b))
                 .element_formatter(Box::new(move |b, _| {
                     format!("{} - {}us", name, b.value / unsorted_height_scale)
                 }))
         }).collect::<Vec<_>>();
         
         let sorted_charts = sorted_bars.into_iter().map(|(name, bars)| {
+            let (r,g,b) = color_from_name(&name);
             BarChart::new(bars)
                 .name(&name)
+                .color(Color32::from_rgb(r,g,b))
                 .element_formatter(Box::new(move |b, _| {
                     format!("{} - {}us", name, b.value)
                 }))
         }).collect::<Vec<_>>();
 
+        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+            ui.label("Frame Time Analysis");
+        });
+
+        let (fps, low_1_percent, flush_overhead, event_overhead) = self.histogram.lock().unwrap().cur_stats();
+        let fps = 1_000_000.0 / fps;
+        let low_1_percent = 1_000_000.0 / low_1_percent;
+        let flush_overhead = 1000.0 * flush_overhead;
+        let event_overhead = 1000.0 * event_overhead;
+
+
+        egui::SidePanel::right("right_panel").show(ctx, |ui| {
+            ui.heading("Stats");
+            ui.label(format!("FPS: {:.2}", fps));
+            ui.label(format!("1% Low: {:.2}", low_1_percent));
+            ui.label(format!("Sparkles flush overhead: {:.3} ms/s", flush_overhead));
+            ui.label(format!("Sparkles event overhead: {:.3} ms/s", event_overhead));
+        });
+
         egui::CentralPanel::default().show(ctx, |ui| {
             Plot::new("Frame Time Histogram")
+                .legend(Legend::default())
+                .y_axis_label("t (us)")
+                // .grid_spacing(Rangef::new(0.01, 0.01))
+                .x_grid_spacer(log_grid_spacer(20))
+                .y_grid_spacer(log_grid_spacer(20))
+                .cursor_color(Color32::PURPLE)
                 .show(ui, |plot_ui| {
                     for chart in unsorted_charts {
                         plot_ui.bar_chart(chart);
@@ -205,7 +276,7 @@ impl eframe::App for FrameTimeApp {
                     for chart in sorted_charts {
                         plot_ui.bar_chart(chart);
                     }
-                });
+                })
         });
 
         ctx.request_repaint(); // Keep updating
@@ -217,13 +288,20 @@ fn main() {
 
     // Client discovery channel
     let (new_client_tx, new_client_rx) = mpsc::sync_channel(1);
+    let (disconnected_tx, disconnected_rx) =  mpsc::sync_channel(1);
     thread::spawn(move || {
         loop {
             thread::sleep(Duration::from_secs(3));
             match sparkles_parser::discover_local_udp_clients() {
                 Ok(r) => {
-                    for addr in r {
-                        new_client_tx.send(addr).unwrap();
+                    if let Some(a) = r.into_iter().next() {
+                        if let Err(TrySendError::Disconnected(_)) = new_client_tx.try_send(a) {
+                            // channel closed
+                            break;
+                        }
+
+                        // wait for finish
+                        disconnected_rx.recv().unwrap();
                     }
                 }
                 Err(e) => {
@@ -233,74 +311,73 @@ fn main() {
         }
     });
 
-    // static CONNECTED_CLIENTS: Mutex<Vec<SocketAddr>> = Mutex::new(Vec::new());
+    static CONNECTED_CLIENTS: Mutex<Vec<SocketAddr>> = Mutex::new(Vec::new());
     while let Ok(addr) =  new_client_rx.recv() {
-        // if CONNECTED_CLIENTS.lock().unwrap().contains(&addr) {
-        //     continue;
-        // }
+        if CONNECTED_CLIENTS.lock().unwrap().contains(&addr) {
+            continue;
+        }
 
-        // CONNECTED_CLIENTS.lock().unwrap().push(addr);
         let histogram = Arc::new(Mutex::new(BufferedHistogram::new())); // Start with empty histogram
         let hist_clone = Arc::clone(&histogram);
 
-        // let disconnected = Arc::new(AtomicBool::new(false));
-        // let disconnected_c = disconnected.clone();
+        let disconnected = Arc::new(AtomicBool::new(false));
+        let disconnected_c = disconnected.clone();
         thread::spawn(move || {
-            let decoder = PacketDecoder::from_socket(addr.clone());
+            let decoder = PacketDecoder::from_socket(addr);
             let mut sparkles_parser = sparkles_parser::SparklesParser::new();
 
-            // let g = guard((), |()| {
-            //     let mut clients = CONNECTED_CLIENTS.lock().unwrap();
-            //     let i = clients.iter().position(|a| a == &addr);
-            //     if let Some(i) = i {
-            //         clients.swap_remove(i);
-            //     }
-            //     disconnected.store(true, Ordering::Relaxed);
-            // });
+            let g = guard((), |()| {
+                disconnected.store(true, Ordering::Relaxed);
+            });
 
             let mut stored_samples = Vec::new();
             sparkles_parser.parse_to_end(decoder, |event, thread_info| {
-                match event {
-                    ParsedEvent::Range {
+                if let ParsedEvent::Range {
                         start,
                         end,
                         name
-                    } => {
-                        if name.contains("Vulkan") && !name.contains("render") {
-                            let dur = *end - *start;
-                            let cur_sample = FrameTimeSample {
-                                inner: Vec::new(),
-                                start: *start,
-                                dur,
-                                name: Arc::from(name.clone().deref())
-                            };
-                            stored_samples.push(cur_sample);
-                        }
-                        else if name.contains("render") {
-                            let dur = *end - *start;
-                            let cur_sample = FrameTimeSample {
-                                inner: mem::take(&mut stored_samples),
-                                start: *start,
-                                dur,
-                                name: Arc::from(name.clone().deref())
-                            };
-                            let mut hist = hist_clone.lock().unwrap();
-                            hist.push(cur_sample);
-                        }
+                    } = event {
+                    if name.contains("Vulkan") && !name.contains("render") {
+                        let dur = *end - *start;
+                        let cur_sample = FrameTimeSample {
+                            inner: Vec::new(),
+                            start: *start,
+                            dur,
+                            name: Arc::from(name.clone().deref())
+                        };
+                        stored_samples.push(cur_sample);
                     }
-                    _ => {}
+                    else if name.contains("render") {
+                        let dur = *end - *start;
+                        let cur_sample = FrameTimeSample {
+                            inner: mem::take(&mut stored_samples),
+                            start: *start,
+                            dur,
+                            name: Arc::from(name.clone().deref())
+                        };
+                        let mut hist = hist_clone.lock().unwrap();
+                        hist.push(cur_sample);
+                    }
+                    else if name.deref() == "[sparkles] Flushing local storage" {
+                        let mut hist = hist_clone.lock().unwrap();
+                        hist.add_overhead(*start as f64, (*end - *start) as f64);
+                    }
                 }
             }).unwrap();
         });
 
         let mut options = eframe::NativeOptions::default();
+        options.centered = false;
+        options.multisampling = 8;
         eframe::run_native(
             &addr.to_string(),
             options,
             Box::new(|_cc| Ok(Box::new(FrameTimeApp { 
                 histogram, 
-                // disconnected: disconnected_c
+                disconnected: disconnected_c
             }))),
         ).unwrap();
+
+        disconnected_tx.send(()).unwrap();
     }
 }

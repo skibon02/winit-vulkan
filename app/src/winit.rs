@@ -22,12 +22,24 @@ use crate::scene::circle::{CircleAttributes, CircleAttributesExt};
 use crate::scene::Scene;
 use crate::scene::uniforms::Time;
 
+
+// More frequent flushes on android
+#[cfg(target_os = "android")]
+fn sparkles_init() -> FinalizeGuard{
+    sparkles::init(SparklesConfig::default()
+        .with_udp_multicast()
+        .with_thread_flush_attempt_threshold(1_000)
+        .with_flush_threshold(1_000))
+}
+
+#[cfg(not(target_os = "android"))]
 fn sparkles_init() -> FinalizeGuard{
     sparkles::init(SparklesConfig::default()
         .with_udp_multicast()
         .with_thread_flush_attempt_threshold(2_000)
         .with_flush_threshold(2_000))
 }
+
 #[cfg(target_os = "android")]
 pub fn run_android(app: AndroidApp) {
     use crate::android::android_main;
