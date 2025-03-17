@@ -70,7 +70,9 @@ pub struct VulkanBackend {
     render_pass_resources: RenderPassResources,
 
     timestamp_query_support: bool,
-    timestamp_pool: Option<TimestampPool>
+    timestamp_pool: Option<TimestampPool>,
+    
+    print_cnt: usize
 }
 
 impl VulkanBackend {
@@ -296,6 +298,8 @@ impl VulkanBackend {
 
             timestamp_query_support,
             timestamp_pool,
+            
+            print_cnt: 0,
         })
     }
 
@@ -391,9 +395,12 @@ impl VulkanBackend {
         }
 
         // query last timestamps
-        // if let Some(dur) = self.timestamp_pool.as_mut().unwrap().read_timestamps(0) {
-        //     info!("GPU draw time: {}ms", dur);
-        // }
+        if let Some(dur) = self.timestamp_pool.as_mut().unwrap().read_timestamps(0) {
+            self.print_cnt += 1;
+            if self.print_cnt % 1000 == 0 {
+                info!("GPU draw time: {}us", dur);
+            }
+        }
 
         // 1.1) Ensure last transfer was finished and staging buffers can be reused
         unsafe {

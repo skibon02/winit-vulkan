@@ -31,7 +31,7 @@ render-macro = { version = "0.1.0", path = "../render-macro" }
 num_enum = "0.7.3"
 
 [features]
-default = ["validation_layers"]
+default = []
 android = ["dep:ndk-sys", "dep:ndk", "dep:jni"]
 validation_layers = []
 portability_subset = []
