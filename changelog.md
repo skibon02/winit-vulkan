@@ -23,6 +23,7 @@ A place where every action with the project is tracked.
 
 ## Known issues
 - Fullscreen is not working on Wayland
+- Out of date swapchain situations are not handled
 
 ## Done
 ### 18.02.2025

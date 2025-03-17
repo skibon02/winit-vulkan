@@ -1,5 +1,6 @@
 use std::{fs, thread};
 use std::ops::Deref;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
 use log::{error, info, warn};
 use sparkles_macro::{instant_event, range_event_start};
@@ -36,8 +37,8 @@ fn sparkles_init() -> FinalizeGuard{
 fn sparkles_init() -> FinalizeGuard{
     sparkles::init(SparklesConfig::default()
         .with_udp_multicast()
-        .with_thread_flush_attempt_threshold(2_000)
-        .with_flush_threshold(2_000))
+        .with_thread_flush_attempt_threshold(4_000)
+        .with_flush_threshold(4_000))
 }
 
 #[cfg(target_os = "android")]
@@ -48,6 +49,7 @@ pub fn run_android(app: AndroidApp) {
     let event_loop = android_main(app);
     let mut winit_app: WinitApp = WinitApp::new(g);
     event_loop.run_app(&mut winit_app).unwrap();
+    info!("Winit application exited without error!");
 }
 
 #[cfg(not(target_os = "android"))]
@@ -409,6 +411,11 @@ impl AppState {
                 self.last_frame_time = Instant::now();
             }
             WindowEvent::Resized(size) => {
+                static FIRST_RESIZE: AtomicBool = AtomicBool::new(true);
+                if FIRST_RESIZE.swap(false, Ordering::Relaxed) {
+                    return Ok(());
+                }
+
                 info!("Resized to {}x{}", size.width, size.height);
                 if size.width == 0 || size.height == 0 {
                     warn!("One of dimensions is 0! Suspending rendering...");

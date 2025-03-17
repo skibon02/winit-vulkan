@@ -8,9 +8,9 @@ use std::sync::mpsc::TrySendError;
 use std::time::Duration;
 use colors_transform::{Color, Hsl};
 use drop_guard::guard;
-use egui::{Color32, Rangef, TextStyle, ViewportCommand};
+use egui::{Color32, Context, Rangef, TextStyle, ViewportCommand};
 use egui_plot::{Plot, BarChart, Bar, Legend, log_grid_spacer};
-use log::{warn, LevelFilter};
+use log::{info, warn, LevelFilter};
 use ringbuf::consumer::Consumer;
 use ringbuf::LocalRb;
 use ringbuf::storage::Heap;
@@ -50,7 +50,12 @@ struct BufferedHistogram {
     data: LocalRb<Heap<FrameTimeSample>>,
     cur_frame: u64,
     max_start: u64,
-    ovh_samples: LocalRb<Heap<(f64, f64)>>
+    ovh_samples: LocalRb<Heap<(f64, f64)>>,
+
+    prev_dense_event: Option<u64>,
+    min_event_overhead: Option<u64>,
+
+    ctx: Option<Context>
 }
 
 const TIME_BUFFER_S: f64 = 2.5;
@@ -61,6 +66,10 @@ impl BufferedHistogram {
             cur_frame: 0,
             max_start: 0,
             ovh_samples: LocalRb::new(100),
+
+            prev_dense_event: None,
+            min_event_overhead: None,
+            ctx: None
         }
     }
     fn push(&mut self, sample: FrameTimeSample) {
@@ -69,6 +78,15 @@ impl BufferedHistogram {
         self.data.push_overwrite(sample);
 
         self.cleanup_if_needed();
+        if let Some(ctx) = &self.ctx {
+            ctx.request_repaint();
+        }
+    }
+    
+    pub fn set_context(&mut self, ctx: &Context) {
+        if self.ctx.is_none() {
+            self.ctx = Some(ctx.clone())
+        }
     }
 
     fn cleanup_if_needed(&mut self) {
@@ -101,9 +119,9 @@ impl BufferedHistogram {
     }
 
     // FPS, 1% low, sparkles flushing overhead, sparkles event overhead
-    fn cur_stats(&self) -> (f64, f64, f64, f64) {
+    fn cur_stats(&self) -> (f64, f64, f64, Option<f64>) {
         if self.data.is_empty() {
-            return (0., 0., 0., 0.0);
+            return (0., 0., 0., None);
         }
         let mut frame_times = self.data.iter().map(|s| s.dur as f64 / 1000.0).collect::<Vec<_>>();
         frame_times.sort_by(|a, b| a.partial_cmp(b).unwrap());
@@ -122,26 +140,37 @@ impl BufferedHistogram {
             total_dur += dur;
         }
 
-        let mut event_cnt = 0;
-        let mut min_ovh = 999999999.0;
-        for sample in self.data.iter() {
-            if sample.start as f64 + 1_000_000_000.0 < cur_time as f64 {
-                continue;
-            }
-
-            event_cnt += (1 + sample.inner.len()) * 2 + 6;
-            if let Some(v) = sample.inner.iter().find(|i| i.name.deref() == "[Vulkan] Queue present") {
-                let cur_ovh = sample.start + sample.dur - v.start - v.dur;
-                if (cur_ovh as f64) < min_ovh {
-                    min_ovh = cur_ovh as f64;
+        let event_ovh = self.min_event_overhead.map(|ovh| {
+            let mut event_cnt = 0;
+            for sample in self.data.iter().rev() {
+                if sample.start as f64 + 1_000_000_000.0 < cur_time as f64 {
+                    continue;
                 }
-            }
-        }
-        let event_ovh = min_ovh * event_cnt as f64;
 
-        (avg_frame_time, low_1_frame_time, total_dur / 1_000_000_000.0, event_ovh / 1_000_000_000.0)
+                event_cnt += (1 + sample.inner.len()) * 2 + 6;
+            }
+            ovh as f64 * event_cnt as f64 / 1_000_000_000.0
+        });
+
+        (avg_frame_time, low_1_frame_time, total_dur / 1_000_000_000.0, event_ovh)
     }
 
+    pub fn dense_event(&mut self, tm: u64) {
+        let Some(prev) = self.prev_dense_event else {
+            self.prev_dense_event = Some(tm);
+            return;
+        };
+
+        let dur = tm - prev;
+        if self.min_event_overhead.is_some_and(|v| dur * 2 < v) {
+            self.min_event_overhead = Some(dur * 2);
+            info!("Got new event overhead: {}", dur * 2)
+        }
+        if self.min_event_overhead.is_none() {
+            self.min_event_overhead = Some(dur);
+        }
+        self.prev_dense_event = Some(tm);
+    }
 }
 
 struct FrameTimeApp {
@@ -250,7 +279,7 @@ impl eframe::App for FrameTimeApp {
         let fps = 1_000_000.0 / fps;
         let low_1_percent = 1_000_000.0 / low_1_percent;
         let flush_overhead = 1000.0 * flush_overhead;
-        let event_overhead = 1000.0 * event_overhead;
+        let event_overhead = event_overhead.map(|v| format!("{:.3}", v * 1000.0)).unwrap_or("-".to_string());
 
 
         egui::SidePanel::right("right_panel").show(ctx, |ui| {
@@ -258,7 +287,7 @@ impl eframe::App for FrameTimeApp {
             ui.label(format!("FPS: {:.2}", fps));
             ui.label(format!("1% Low: {:.2}", low_1_percent));
             ui.label(format!("Sparkles flush overhead: {:.3} ms/s", flush_overhead));
-            ui.label(format!("Sparkles event overhead: {:.3} ms/s", event_overhead));
+            ui.label(format!("Sparkles event overhead: {} ms/s", event_overhead));
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -279,7 +308,7 @@ impl eframe::App for FrameTimeApp {
                 })
         });
 
-        ctx.request_repaint(); // Keep updating
+        self.histogram.lock().unwrap().set_context(&ctx);
     }
 }
 
@@ -332,36 +361,44 @@ fn main() {
 
             let mut stored_samples = Vec::new();
             sparkles_parser.parse_to_end(decoder, |event, thread_info| {
-                if let ParsedEvent::Range {
+                match event {
+                    ParsedEvent::Range {
                         start,
                         end,
                         name
-                    } = event {
-                    if name.contains("Vulkan") && !name.contains("render") {
-                        let dur = *end - *start;
-                        let cur_sample = FrameTimeSample {
-                            inner: Vec::new(),
-                            start: *start,
-                            dur,
-                            name: Arc::from(name.clone().deref())
-                        };
-                        stored_samples.push(cur_sample);
+                    } => {
+                        if name.contains("Vulkan") && !name.contains("render") {
+                            let dur = *end - *start;
+                            let cur_sample = FrameTimeSample {
+                                inner: Vec::new(),
+                                start: *start,
+                                dur,
+                                name: Arc::from(name.clone().deref())
+                            };
+                            stored_samples.push(cur_sample);
+                        } else if name.contains("render") {
+                            let dur = *end - *start;
+                            let cur_sample = FrameTimeSample {
+                                inner: mem::take(&mut stored_samples),
+                                start: *start,
+                                dur,
+                                name: Arc::from(name.clone().deref())
+                            };
+                            let mut hist = hist_clone.lock().unwrap();
+                            hist.push(cur_sample);
+                        } else if name.deref() == "[sparkles] Flushing local storage" {
+                            let mut hist = hist_clone.lock().unwrap();
+                            hist.add_overhead(*start as f64, (*end - *start) as f64);
+                        }
                     }
-                    else if name.contains("render") {
-                        let dur = *end - *start;
-                        let cur_sample = FrameTimeSample {
-                            inner: mem::take(&mut stored_samples),
-                            start: *start,
-                            dur,
-                            name: Arc::from(name.clone().deref())
-                        };
+                    ParsedEvent::Instant {
+                        tm,
+                        name,
+                    } if name.deref() == "dense_event" => {
                         let mut hist = hist_clone.lock().unwrap();
-                        hist.push(cur_sample);
+                        hist.dense_event(*tm);
                     }
-                    else if name.deref() == "[sparkles] Flushing local storage" {
-                        let mut hist = hist_clone.lock().unwrap();
-                        hist.add_overhead(*start as f64, (*end - *start) as f64);
-                    }
+                    _ => {}
                 }
             }).unwrap();
         });

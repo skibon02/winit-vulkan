@@ -355,6 +355,10 @@ impl VulkanBackend {
         let cur_command_buffer = cur_sync_set.command_buffer;
         let prev_transfer_finish_ev = prev_sync_set.transfer_finished_ev;
         let cur_transfer_finish_ev = cur_sync_set.transfer_finished_ev;
+        
+        instant_event!("dense_event");
+        instant_event!("dense_event");
+        instant_event!("dense_event");
 
         // 1) Acquire next image
         let (image_index, is_suboptimal) = unsafe {

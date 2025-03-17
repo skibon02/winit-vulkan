@@ -9,4 +9,5 @@ pub mod scene;
 fn android_main(app: crate::winit::AndroidApp) {
     use crate::winit::run_android;
     run_android(app);
+    std::process::exit(0);
 }

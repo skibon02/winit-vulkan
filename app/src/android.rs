@@ -145,7 +145,9 @@ pub fn android_main(app: AndroidApp) -> EventLoop<()> {
     *VM.lock().unwrap() = Some(vm);
     *ACTIVITY.lock().unwrap() = Some(activity);
     set_android_context(ACTIVITY.clone(), VM.clone());
-    let event_loop = EventLoopBuilder::default().with_android_app(app).build().unwrap();
+    let event_loop = EventLoopBuilder::default()
+        .with_android_app(app)
+        .build().unwrap();
     event_loop
 }
 
