@@ -340,9 +340,9 @@ fn main() {
         }
     });
 
-    static CONNECTED_CLIENTS: Mutex<Vec<SocketAddr>> = Mutex::new(Vec::new());
-    while let Ok(addr) =  new_client_rx.recv() {
-        if CONNECTED_CLIENTS.lock().unwrap().contains(&addr) {
+    static CONNECTED_CLIENTS: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+    while let Ok((session_id, addrs)) =  new_client_rx.recv() {
+        if CONNECTED_CLIENTS.lock().unwrap().contains(&session_id) {
             continue;
         }
 
@@ -351,6 +351,8 @@ fn main() {
 
         let disconnected = Arc::new(AtomicBool::new(false));
         let disconnected_c = disconnected.clone();
+        
+        let addr = addrs[0];
         thread::spawn(move || {
             let decoder = PacketDecoder::from_socket(addr);
             let mut sparkles_parser = sparkles_parser::SparklesParser::new();
