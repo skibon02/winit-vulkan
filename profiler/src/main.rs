@@ -112,7 +112,7 @@ fn main() {
 
             let mut options = eframe::NativeOptions::default();
             options.centered = false;
-            options.multisampling = 8;
+            options.multisampling = 4;
             eframe::run_native(
                 &addr.to_string(),
                 options,

@@ -395,7 +395,7 @@ impl VulkanBackend {
         }
 
         // query last timestamps
-        if let Some(dur) = self.timestamp_pool.as_mut().unwrap().read_timestamps(0) {
+        if let Some(dur) = self.timestamp_pool.as_mut().and_then(|p| p.read_timestamps(0)) {
             self.print_cnt += 1;
             if self.print_cnt % 1000 == 0 {
                 info!("GPU draw time: {}us", dur);
@@ -426,7 +426,9 @@ impl VulkanBackend {
             self.device
                 .begin_command_buffer(cur_command_buffer, &command_buffer_begin_info)
                 .unwrap();
-            self.timestamp_pool.as_mut().unwrap().write_start_timestamp(cur_command_buffer, 0);
+            if let Some(tm_pool) = self.timestamp_pool.as_mut() {
+                tm_pool.write_start_timestamp(cur_command_buffer, 0);
+            }
 
             self.device.cmd_set_event(cur_command_buffer, cur_transfer_finish_ev, PipelineStageFlags::TRANSFER);
         }
@@ -544,7 +546,9 @@ impl VulkanBackend {
                 &[],
                 &[],
             );
-            self.timestamp_pool.as_mut().unwrap().write_end_timestamp(command_buffer, 1);
+            if let Some(tm_pool) = self.timestamp_pool.as_mut() {
+                tm_pool.write_end_timestamp(command_buffer, 1);
+            }
             device.end_command_buffer(command_buffer).unwrap();
         }
     }
