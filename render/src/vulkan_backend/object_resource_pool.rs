@@ -189,7 +189,7 @@ impl ObjectResourcePool {
                         BufferUpdateCmd::Update(BufferUpdateData { modified_bytes, buffer_offset }) => {
                             // info!("Updating uniform buffer with id: {}.", id);
                             let entry = self.uniform_buffers.get(&id).expect("Renderer update: uniform buffer does not exist");
-                            resource_manager.fill_buffer(*entry, &modified_bytes, buffer_offset);
+                            resource_manager.fill_buffer(*entry, modified_bytes, buffer_offset);
                         }
                         BufferUpdateCmd::Resize(new_size) => {
                             unimplemented!("Renderer update: uniform buffer resize is not implemented");

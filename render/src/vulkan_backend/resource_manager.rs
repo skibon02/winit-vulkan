@@ -7,7 +7,7 @@ use ash::vk::{self, Buffer, BufferCreateFlags, BufferUsageFlags, CommandBuffer, 
 use std::fmt::Debug;
 use std::ops::Range;
 use log::info;
-use sparkles_macro::range_event_start;
+use sparkles::range_event_start;
 
 const STAGING_BUFFER_SIZE: usize = 1024 * 1024 * 128; // 128 MB
 

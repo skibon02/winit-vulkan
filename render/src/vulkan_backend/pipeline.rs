@@ -9,7 +9,7 @@ use ash::vk::{ColorComponentFlags, CompareOp, CullModeFlags, DescriptorSetLayout
               SampleCountFlags, ShaderModuleCreateInfo, ShaderStageFlags, VertexInputAttributeDescription, VertexInputBindingDescription, FALSE};
 use log::info;
 use smallvec::{smallvec, SmallVec};
-use sparkles_macro::range_event_start;
+use sparkles::range_event_start;
 use render_core::layout::MemberMeta;
 use render_core::layout::types::GlslTypeVariant;
 use render_core::pipeline::{PipelineDescWrapper, UniformBindingType, VertexAssembly};
@@ -166,7 +166,7 @@ impl VulkanPipeline {
     }
 }
 
-fn get_assembly_create_info(assembly: &VertexAssembly) -> PipelineInputAssemblyStateCreateInfo {
+fn get_assembly_create_info(assembly: &VertexAssembly) -> PipelineInputAssemblyStateCreateInfo<'_> {
     match assembly {
         VertexAssembly::TriangleStrip => PipelineInputAssemblyStateCreateInfo {
             topology: PrimitiveTopology::TRIANGLE_STRIP,

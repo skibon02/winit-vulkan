@@ -1,7 +1,7 @@
 use std::ops::Deref;
 use std::sync::Arc;
 use ash::Instance;
-use sparkles_macro::range_event_start;
+use sparkles::range_event_start;
 
 pub type VkInstanceRef = Arc<VkInstance>;
 

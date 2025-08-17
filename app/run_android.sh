@@ -1,2 +1,2 @@
 #!/bin/bash
-./x run --device adb:b01266b0 --features android --release
+./x run --device adb:bad0726d --features android --release

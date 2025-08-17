@@ -4,7 +4,7 @@ use ash::vk;
 use ash::vk::{BufferUsageFlags, CommandBuffer, DescriptorBufferInfo, DescriptorPool, DescriptorPoolSize, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorType, Extent2D, ImageTiling, PipelineBindPoint, PipelineLayout, SampleCountFlags, ShaderStageFlags, WriteDescriptorSet, WHOLE_SIZE};
 use log::info;
 use smallvec::SmallVec;
-use sparkles_macro::range_event_start;
+use sparkles::range_event_start;
 use crate::util::get_resource;
 use crate::util::image::read_image_from_bytes;
 use crate::vulkan_backend::object_resource_pool::UniformImage;
@@ -27,9 +27,9 @@ pub struct DescriptorSetPool {
 
 impl DescriptorSetPool {
     pub fn new(device: VkDeviceRef) -> Self {
-        let capacity_sets = 50;
-        let capacity_uniform_buffers = 50;
-        let capacity_image_samplers = 50;
+        let capacity_sets = 100;
+        let capacity_uniform_buffers = 100;
+        let capacity_image_samplers = 100;
 
         let pool_sizes = [
             DescriptorPoolSize::default()

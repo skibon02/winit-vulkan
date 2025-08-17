@@ -21,13 +21,14 @@ use crate::vulkan_backend::wrappers::debug_report::VkDebugReport;
 use crate::vulkan_backend::wrappers::device::VkDeviceRef;
 use crate::vulkan_backend::wrappers::surface::{VkSurface, VkSurfaceRef};
 use render_pass::RenderPassWrapper;
-use sparkles_macro::{instant_event, range_event_start};
+use sparkles::{instant_event, range_event_start};
 use std::ffi::{c_char, CString};
 use std::time::Instant;
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 use render_core::collect_state::CollectDrawStateUpdates;
 use crate::vulkan_backend::config::VulkanRenderConfig;
 use crate::vulkan_backend::object_resource_pool::ObjectResourcePool;
+use crate::vulkan_backend::wrappers::calibrated_timestamps::CalibratedTimestamps;
 use crate::vulkan_backend::wrappers::timestamp_pool::TimestampPool;
 
 pub struct SyncSet {
@@ -64,6 +65,9 @@ pub struct VulkanBackend {
 
     swapchain_wrapper: SwapchainWrapper,
     object_resource_pool: ObjectResourcePool,
+
+    // extensions
+    calibrated_timestamps: CalibratedTimestamps,
 
     // stuff for actual rendering
     render_pass: RenderPassWrapper,
@@ -178,7 +182,7 @@ impl VulkanBackend {
                 panic!("No available queue family found");
             });
 
-        let device_extensions = vec![ash::khr::swapchain::NAME.as_ptr()];
+        let device_extensions = vec![ash::khr::swapchain::NAME.as_ptr(), ash::khr::calibrated_timestamps::NAME.as_ptr()];
 
         let queue_create_infos = [vk::DeviceQueueCreateInfo::default()
             .queue_family_index(queue_family_index)
@@ -272,6 +276,7 @@ impl VulkanBackend {
             res
         };
 
+        let calibrated_timestamps = CalibratedTimestamps::new(&instance, physical_device);
 
         Ok(VulkanBackend {
             config,
@@ -292,6 +297,8 @@ impl VulkanBackend {
             cur_sync_set: 0,
 
             object_resource_pool,
+
+            calibrated_timestamps,
 
             render_pass,
             render_pass_resources,

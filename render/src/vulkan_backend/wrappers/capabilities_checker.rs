@@ -5,7 +5,7 @@ use std::sync::Arc;
 use ash::{vk, Entry};
 use ash::vk::{ApplicationInfo, DebugReportCallbackCreateInfoEXT, DebugUtilsMessengerCreateInfoEXT, InstanceCreateInfo};
 use log::{info, warn};
-use sparkles_macro::range_event_start;
+use sparkles::range_event_start;
 use crate::vulkan_backend::wrappers::device::{VkDevice, VkDeviceRef};
 use crate::vulkan_backend::wrappers::instance::{VkInstance, VkInstanceRef};
 

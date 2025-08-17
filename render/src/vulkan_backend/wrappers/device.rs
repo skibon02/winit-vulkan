@@ -1,7 +1,7 @@
 use std::ops::Deref;
 use std::sync::Arc;
 use ash::{Device, Instance};
-use sparkles_macro::range_event_start;
+use sparkles::range_event_start;
 use crate::vulkan_backend::wrappers::instance::VkInstanceRef;
 
 pub type VkDeviceRef = Arc<VkDevice>;
