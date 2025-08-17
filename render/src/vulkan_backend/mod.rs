@@ -182,7 +182,7 @@ impl VulkanBackend {
                 panic!("No available queue family found");
             });
 
-        let device_extensions = vec![ash::khr::swapchain::NAME.as_ptr(), ash::khr::calibrated_timestamps::NAME.as_ptr()];
+        let device_extensions = vec![ash::khr::swapchain::NAME.as_ptr(), ash::ext::calibrated_timestamps::NAME.as_ptr()];
 
         let queue_create_infos = [vk::DeviceQueueCreateInfo::default()
             .queue_family_index(queue_family_index)
@@ -276,7 +276,7 @@ impl VulkanBackend {
             res
         };
 
-        let calibrated_timestamps = CalibratedTimestamps::new(&instance, physical_device);
+        let calibrated_timestamps = CalibratedTimestamps::new(&instance, physical_device, &device);
 
         Ok(VulkanBackend {
             config,
@@ -400,6 +400,10 @@ impl VulkanBackend {
         if is_suboptimal {
             warn!("Swapchain is suboptimal!");
         }
+
+        // Capture calibrated timestamps
+        let (tms, max_dev) = self.calibrated_timestamps.get_timestamps();
+        info!("[Vulkan] Calibrated timestamps: {:?}. Max deviation: {:.1}us", tms, max_dev as f32 / 1000.0);
 
         // query last timestamps
         if let Some(dur) = self.timestamp_pool.as_mut().and_then(|p| p.read_timestamps(0)) {
