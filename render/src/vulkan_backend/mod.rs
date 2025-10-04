@@ -11,7 +11,7 @@ use swapchain_wrapper::SwapchainWrapper;
 
 use log::{debug, error, info, warn};
 
-use ash::vk::{self, make_api_version, ApplicationInfo, BufferUsageFlags, CommandBuffer, CommandBufferBeginInfo, DeviceSize, Event, EventCreateFlags, EventCreateInfo, Extent2D, FenceCreateFlags, PhysicalDevice, PipelineBindPoint, PipelineStageFlags, PrimitiveTopology, QueryPool, QueryPoolCreateInfo, Queue, RenderPassBeginInfo, Semaphore};
+use ash::vk::{self, make_api_version, ApplicationInfo, BufferUsageFlags, CommandBuffer, CommandBufferBeginInfo, DeviceSize, Event, EventCreateFlags, EventCreateInfo, Extent2D, FenceCreateFlags, PhysicalDevice, PipelineBindPoint, PipelineStageFlags, PrimitiveTopology, QueryPool, QueryPoolCreateInfo, Queue, RenderPassBeginInfo, Semaphore, TimeDomainEXT};
 
 use crate::vulkan_backend::render_pass::RenderPassResources;
 use crate::vulkan_backend::resource_manager::{BufferResource, ResourceManager};
@@ -21,10 +21,12 @@ use crate::vulkan_backend::wrappers::debug_report::VkDebugReport;
 use crate::vulkan_backend::wrappers::device::VkDeviceRef;
 use crate::vulkan_backend::wrappers::surface::{VkSurface, VkSurfaceRef};
 use render_pass::RenderPassWrapper;
-use sparkles::{instant_event, range_event_start};
+use sparkles::{instant_event, range_event_start, static_name};
 use std::ffi::{c_char, CString};
-use std::time::Instant;
+use std::thread;
+use std::time::{Duration, Instant};
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
+use sparkles::external_events::ExternalEventsSource;
 use render_core::collect_state::CollectDrawStateUpdates;
 use crate::vulkan_backend::config::VulkanRenderConfig;
 use crate::vulkan_backend::object_resource_pool::ObjectResourcePool;
@@ -76,7 +78,8 @@ pub struct VulkanBackend {
     timestamp_query_support: bool,
     timestamp_pool: Option<TimestampPool>,
     
-    print_cnt: usize
+    last_time_sync_tm: Option<Instant>,
+    sparkles_gpu_channel: ExternalEventsSource,
 }
 
 impl VulkanBackend {
@@ -276,7 +279,13 @@ impl VulkanBackend {
             res
         };
 
-        let calibrated_timestamps = CalibratedTimestamps::new(&instance, physical_device, &device);
+        let mut calibrated_timestamps = CalibratedTimestamps::new(&instance, physical_device, &device);
+        let mut sparkles_gpu_channel = ExternalEventsSource::new("Vulkan GPU".to_string());
+
+        if let Some((gpu_tm, host_tm)) = calibrated_timestamps.get_timestamps_pair() {
+            sparkles_gpu_channel.push_sync_point(host_tm, gpu_tm);
+        }
+
 
         Ok(VulkanBackend {
             config,
@@ -305,8 +314,9 @@ impl VulkanBackend {
 
             timestamp_query_support,
             timestamp_pool,
-            
-            print_cnt: 0,
+
+            last_time_sync_tm: None,
+            sparkles_gpu_channel,
         })
     }
 
@@ -402,15 +412,19 @@ impl VulkanBackend {
         }
 
         // Capture calibrated timestamps
-        let (tms, max_dev) = self.calibrated_timestamps.get_timestamps();
-        info!("[Vulkan] Calibrated timestamps: {:?}. Max deviation: {:.1}us", tms, max_dev as f32 / 1000.0);
+        if self.last_time_sync_tm.is_none_or(| t| t.elapsed().as_millis() > 100) && self.timestamp_query_support {
+            self.last_time_sync_tm = Some(Instant::now());
+
+            if let Some((gpu_tm, host_tm)) = self.calibrated_timestamps.get_timestamps_pair() {
+                self.sparkles_gpu_channel.push_sync_point(host_tm, gpu_tm);
+            }
+        }
+        // info!("[Vulkan] Calibrated timestamps: {:?}. Max deviation: {:.1}us", tms, max_dev as f32 / 1000.0);
 
         // query last timestamps
-        if let Some(dur) = self.timestamp_pool.as_mut().and_then(|p| p.read_timestamps(0)) {
-            self.print_cnt += 1;
-            if self.print_cnt % 1000 == 0 {
-                info!("GPU draw time: {}us", dur);
-            }
+        if let Some((start, end)) = self.timestamp_pool.as_mut().and_then(|p| p.read_timestamps(0)) {
+            let ev_name = self.sparkles_gpu_channel.map_event_name(static_name!("Render"));
+            self.sparkles_gpu_channel.push_events(&[start, end], &[(ev_name, 1), (ev_name, 0x81)])
         }
 
         // 1.1) Ensure last transfer was finished and staging buffers can be reused

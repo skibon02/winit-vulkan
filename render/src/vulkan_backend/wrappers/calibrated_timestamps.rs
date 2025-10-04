@@ -42,4 +42,24 @@ impl CalibratedTimestamps {
             (res, max_deviation)
         }
     }
+
+    pub fn get_timestamps_pair(&self) -> Option<(u64, u64)> {
+        let (tms, max_dev) = self.get_timestamps();
+        let mut gpu_tm = None;
+        let mut host_tm = None;
+        for (source, tm) in tms {
+            if source == TimeDomainEXT::CLOCK_MONOTONIC {
+                host_tm = Some(tm);
+            }
+            else if source == TimeDomainEXT::DEVICE {
+                gpu_tm = Some(tm);
+            }
+        }
+        if let (Some(gpu_tm), Some(host_tm)) = (gpu_tm, host_tm) {
+            Some((gpu_tm, host_tm))
+        }
+        else {
+            None
+        }
+    }
 }

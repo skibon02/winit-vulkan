@@ -1,7 +1,7 @@
 pub mod gui_app;
 
 use std::{env, mem, thread};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::net::SocketAddr;
 use std::ops::Deref;
 use std::str::FromStr;
@@ -13,13 +13,17 @@ use log::{info, warn, LevelFilter};
 use sparkles_parser::packet_decoder::PacketDecoder;
 use sparkles_parser::parsed::ParsedEvent;
 use simple_logger::SimpleLogger;
+use sparkles_parser::{DiscoveryWrapper, SparklesParserEvent};
+use sparkles_parser::parser::thread_parser::{EventNamesStore, ThreadParserEvent};
 use crate::gui_app::{BufferedHistogram, FrameTimeApp, FrameTimeSample};
 pub fn run_discovery_task() {
     let mut running_clients = BTreeMap::new();
+
+    let mut discovery_wrapper = DiscoveryWrapper::new();
     loop {
         thread::sleep(Duration::from_secs(3));
 
-        match sparkles_parser::discover_local_udp_clients() {
+        match discovery_wrapper.discover() {
             Ok(r) => {
                 for (session_id, addrs) in r {
                     if !running_clients.contains_key(&session_id) {
@@ -67,45 +71,59 @@ fn main() {
                 });
 
                 let mut stored_samples = Vec::new();
-                sparkles_parser.parse_to_end(decoder, |event, thread_info| {
-                    match event {
-                        ParsedEvent::Range {
-                            start,
-                            end,
-                            name
-                        } => {
-                            if name.contains("Vulkan") && !name.contains("render") {
-                                let dur = *end - *start;
-                                let cur_sample = FrameTimeSample {
-                                    inner: Vec::new(),
-                                    start: *start,
-                                    dur,
-                                    name: Arc::from(name.clone().deref())
-                                };
-                                stored_samples.push(cur_sample);
-                            } else if name.contains("render") {
-                                let dur = *end - *start;
-                                let cur_sample = FrameTimeSample {
-                                    inner: mem::take(&mut stored_samples),
-                                    start: *start,
-                                    dur,
-                                    name: Arc::from(name.clone().deref())
-                                };
-                                let mut hist = hist_clone.lock().unwrap();
-                                hist.push(cur_sample);
-                            } else if name.deref() == "[sparkles] Flushing local storage" {
-                                let mut hist = hist_clone.lock().unwrap();
-                                hist.add_overhead(*start as f64, (*end - *start) as f64);
+                let mut per_thread_names: HashMap<u64, EventNamesStore> = HashMap::new();
+                sparkles_parser.parse_to_end(decoder, |event| {
+                    if let SparklesParserEvent::ThreadParserEvent(evt, thread_info) = event {
+                        let names = per_thread_names.entry(thread_info.thread_ord_id).or_default();
+                        if let ThreadParserEvent::NewEvents(new_events) = evt {
+                            for ev in new_events {
+                                match ev {
+                                    ParsedEvent::Instant {
+                                        tm,
+                                        name_id
+                                    } => {
+                                        let name = names.get(&name_id).unwrap().0.clone();
+                                        if name.deref() == "dense_event" {
+                                            let mut hist = hist_clone.lock().unwrap();
+                                            hist.dense_event(tm);
+                                        }
+                                    }
+
+                                    ParsedEvent::Range {
+                                        start,
+                                        end,
+                                        name_id,
+                                        end_name_id,
+                                        start_thread_ord_id
+                                    } => {
+                                        let name = names.get(&name_id).unwrap().0.clone();
+                                        if name.contains("Vulkan") && !name.contains("render") {
+                                            let dur = end - start;
+                                            let cur_sample = FrameTimeSample {
+                                                inner: Vec::new(),
+                                                start,
+                                                dur,
+                                                name: Arc::from(name.clone().deref())
+                                            };
+                                            stored_samples.push(cur_sample);
+                                        } else if name.contains("render") {
+                                            let dur = end - start;
+                                            let cur_sample = FrameTimeSample {
+                                                inner: mem::take(&mut stored_samples),
+                                                start,
+                                                dur,
+                                                name: Arc::from(name.clone().deref())
+                                            };
+                                            let mut hist = hist_clone.lock().unwrap();
+                                            hist.push(cur_sample);
+                                        } else if name.deref() == "[sparkles] Flushing local storage" {
+                                            let mut hist = hist_clone.lock().unwrap();
+                                            hist.add_overhead(start as f64, (end - start) as f64);
+                                        }
+                                    }
+                                }
                             }
                         }
-                        ParsedEvent::Instant {
-                            tm,
-                            name,
-                        } if name.deref() == "dense_event" => {
-                            let mut hist = hist_clone.lock().unwrap();
-                            hist.dense_event(*tm);
-                        }
-                        _ => {}
                     }
                 }).unwrap();
             });

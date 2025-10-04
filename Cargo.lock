@@ -133,8 +133,7 @@ dependencies = [
  "render-core",
  "simple_logger",
  "smallvec",
- "sparkles 0.1.8",
- "sparkles-macro 0.1.6",
+ "sparkles",
  "thiserror 2.0.12",
  "winit",
 ]
@@ -993,9 +992,9 @@ checksum = "03087c2bad5e1034e8cace5926dec053fb3790248370865f5117a7d0213354c8"
 
 [[package]]
 name = "libc"
-version = "0.2.174"
+version = "0.2.176"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1171693293099992e19cddea4e8b849964e9846f4acee11b3948bcc337be8776"
+checksum = "58f929b4d672ea937a23a1ab494143d968337a5f47e56d0815df1e0890ddf174"
 
 [[package]]
 name = "libfuzzer-sys"
@@ -1934,7 +1933,7 @@ dependencies = [
  "render-core",
  "render-macro",
  "smallvec",
- "sparkles 0.2.0",
+ "sparkles",
  "thiserror 2.0.12",
 ]
 
@@ -2155,74 +2154,39 @@ dependencies = [
 
 [[package]]
 name = "sparkles"
-version = "0.1.8"
-source = "git+https://github.com/skibon02/sparkles.git#e9800ca5cbea9b749e944963dc314fb352946323"
-dependencies = [
- "bincode",
- "chrono",
- "log",
- "multicast-discovery-socket",
- "parking_lot",
- "ringbuf",
- "sparkles-core 0.1.8",
- "sparkles-macro 0.1.6",
- "thread-id",
-]
-
-[[package]]
-name = "sparkles"
 version = "0.2.0"
-source = "git+https://github.com/skibon02/sparkles.git?branch=main#e0f52762dc9e36209b739acba8d059293d37e1b6"
+source = "git+https://github.com/skibon02/sparkles.git?branch=main#1c099cc9dd5319f388dd11acb246b11f00ef2007"
 dependencies = [
  "bincode",
  "chrono",
+ "libc",
  "log",
  "multicast-discovery-socket",
  "parking_lot",
  "ringbuf",
  "smallvec",
- "sparkles-core 0.2.0",
- "sparkles-macro 0.2.0",
+ "sparkles-core",
+ "sparkles-macro",
  "thread-id",
-]
-
-[[package]]
-name = "sparkles-core"
-version = "0.1.8"
-source = "git+https://github.com/skibon02/sparkles.git#e9800ca5cbea9b749e944963dc314fb352946323"
-dependencies = [
- "bincode",
- "enumset",
- "sha2-const-stable",
- "sparkles-macro 0.1.6",
+ "winapi",
 ]
 
 [[package]]
 name = "sparkles-core"
 version = "0.2.0"
-source = "git+https://github.com/skibon02/sparkles.git?branch=main#e0f52762dc9e36209b739acba8d059293d37e1b6"
+source = "git+https://github.com/skibon02/sparkles.git?branch=main#1c099cc9dd5319f388dd11acb246b11f00ef2007"
 dependencies = [
  "bincode",
  "cfg-expr 0.20.1",
  "enumset",
  "sha2-const-stable",
- "sparkles-macro 0.2.0",
-]
-
-[[package]]
-name = "sparkles-macro"
-version = "0.1.6"
-source = "git+https://github.com/skibon02/sparkles.git#e9800ca5cbea9b749e944963dc314fb352946323"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
+ "sparkles-macro",
 ]
 
 [[package]]
 name = "sparkles-macro"
 version = "0.2.0"
-source = "git+https://github.com/skibon02/sparkles.git?branch=main#e0f52762dc9e36209b739acba8d059293d37e1b6"
+source = "git+https://github.com/skibon02/sparkles.git?branch=main#1c099cc9dd5319f388dd11acb246b11f00ef2007"
 dependencies = [
  "proc-macro2",
  "quote",

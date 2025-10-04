@@ -39,11 +39,10 @@ impl TimestampPool {
         unsafe { self.device.cmd_reset_query_pool(cb,  self.query_pool, 0, self.slot_count as u32) };
     }
     
-    pub fn read_timestamps(&mut self, start_slot: u32) -> Option<f32> {
+    pub fn read_timestamps(&mut self, start_slot: u32) -> Option<(u64, u64)> {
         let mut timestamps = [0u64; 2];
         unsafe { self.device.get_query_pool_results(self.query_pool, start_slot, &mut timestamps, QueryResultFlags::TYPE_64).ok()? };
-        let dur = timestamps[1] - timestamps[0];
-        Some(dur as f32 * self.tm_period / 1_000.0)
+        Some((timestamps[0], timestamps[1]))
     }
     
 }

@@ -3,10 +3,9 @@ use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
 use log::{error, info, warn};
-use sparkles_macro::{instant_event, range_event_start};
 use std::time::Instant;
 use sparkles::config::SparklesConfig;
-use sparkles::FinalizeGuard;
+use sparkles::{instant_event, range_event_start, FinalizeGuard};
 use winit::application::ApplicationHandler;
 use winit::event_loop::{ActiveEventLoop, EventLoopBuilder};
 use winit::keyboard::NamedKey;
@@ -36,9 +35,7 @@ fn sparkles_init() -> FinalizeGuard{
 #[cfg(not(target_os = "android"))]
 fn sparkles_init() -> FinalizeGuard{
     sparkles::init(SparklesConfig::default()
-        .with_udp_multicast_default()
-        .with_thread_flush_attempt_threshold(4_000)
-        .with_flush_threshold(4_000))
+        .with_udp_multicast_default())
 }
 
 #[cfg(target_os = "android")]
@@ -388,7 +385,7 @@ impl AppState {
                             trig_time: (trail_id as i32 + 1_500).into(),
                         });
 
-                        self.scene.trail.auto_remove(trail_id - 2_000);
+                        self.scene.trail.auto_remove(trail_id.saturating_sub(2_000));
                         
                         self.trail_last_update = Instant::now();
                     }
