@@ -5,9 +5,9 @@ use jni::{JNIEnv, JavaVM};
 use jni::objects::GlobalRef;
 use lazy_static::lazy_static;
 use log::info;
-use sparkles_macro::range_event_start;
 use winit::event_loop::{EventLoop, EventLoopBuilder};
 use winit::platform::android::activity::*;
+use sparkles::range_event_start;
 
 pub fn android_main(app: AndroidApp) -> EventLoop<()> {
     use jni::objects::{JObject, JObjectArray, JValue};
