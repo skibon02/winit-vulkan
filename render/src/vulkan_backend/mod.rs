@@ -25,6 +25,7 @@ use sparkles::{instant_event, range_event_start, static_name};
 use std::ffi::{c_char, CString};
 use std::thread;
 use std::time::{Duration, Instant};
+use anyhow::Context;
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 use sparkles::external_events::ExternalEventsSource;
 use render_core::collect_state::CollectDrawStateUpdates;
@@ -401,8 +402,7 @@ impl VulkanBackend {
                     u64::MAX,
                     cur_semaphore,
                     vk::Fence::null(),
-                )
-                .expect("Failed to acquire next image.");
+                ).context("Acquire next image")?;
 
             instant_event!("[Vulkan] New frame!");
             res
@@ -458,7 +458,7 @@ impl VulkanBackend {
             self.device.cmd_set_event(cur_command_buffer, cur_transfer_finish_ev, PipelineStageFlags::TRANSFER);
         }
 
-        // 3) record command buffer (if index was changed)
+        // 3) record command buffer
         let image_index = image_index as usize;
         self.record_draw(cur_command_buffer, image_index, clear_color);
 

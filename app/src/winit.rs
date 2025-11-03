@@ -1,7 +1,9 @@
 use std::{fs, thread};
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, mpsc};
 use std::thread::JoinHandle;
+use parking_lot::Mutex;
 use log::{error, info, warn};
 use std::time::Instant;
 use sparkles::config::SparklesConfig;
@@ -21,6 +23,12 @@ use render::vulkan_backend::config::{InFlightFrames, VulkanRenderConfig};
 use crate::scene::circle::{CircleAttributes, CircleAttributesExt};
 use crate::scene::Scene;
 use crate::scene::uniforms::Time;
+
+enum RenderMessage {
+    Redraw { bg_color: [f32; 3], done: Arc<AtomicBool> },
+    Resize { width: u32, height: u32 },
+    Exit,
+}
 
 
 fn sparkles_init() -> FinalizeGuard{
@@ -109,7 +117,6 @@ pub struct AppState {
     prev_touch_event_time: Instant,
     start_time: Instant,
 
-    vulkan_backend: VulkanBackend,
     window: Window,
 
     frame_cnt: i32,
@@ -117,11 +124,15 @@ pub struct AppState {
 
     rendering_active: bool,
 
-    scene: Scene,
+    scene: Arc<Mutex<Scene>>,
+    render_tx: mpsc::Sender<RenderMessage>,
+    render_thread: Option<JoinHandle<()>>,
+    render_ready: Arc<AtomicBool>,
+
     bg_color: [f32; 3],
     last_touch_pos: [f32; 2],
     last_frame_time: Instant,
-    
+
     trail_last_update: Instant,
 }
 
@@ -132,7 +143,6 @@ pub enum AppResult {
 
 impl AppState {
     pub fn new_winit(window: Window) -> AppState {
-
         let raw_window_handle = window.raw_window_handle().unwrap();
         let raw_display_handle = window.raw_display_handle().unwrap();
         let inner_size = window.inner_size();
@@ -140,26 +150,56 @@ impl AppState {
             msaa_samples: None,
             in_flight_frames: InFlightFrames::One
         };
-        let vulkan_backend = VulkanBackend::new_for_window(raw_window_handle, raw_display_handle, (inner_size.width, inner_size.height), config).unwrap();
+        let mut vulkan_backend = VulkanBackend::new_for_window(
+            raw_window_handle,
+            raw_display_handle,
+            (inner_size.width, inner_size.height),
+            config
+        ).unwrap();
 
         let aspect = inner_size.width as f32 / inner_size.height as f32;
-        let object_group = Scene::new(aspect);
+        let scene = Arc::new(Mutex::new(Scene::new(aspect)));
+        let scene_clone = Arc::clone(&scene);
+
+        let (tx, rx) = mpsc::channel::<RenderMessage>();
+
+        let render_thread = thread::spawn(move || {
+            loop {
+                match rx.recv() {
+                    Ok(RenderMessage::Redraw { bg_color, done }) => {
+                        let g = range_event_start!("Render");
+                        let mut scene_guard = scene_clone.lock();
+                        if let Err(e) = vulkan_backend.render(&mut *scene_guard, bg_color) {
+                            error!("Render error: {:?}", e);
+                        }
+                        done.store(true, Ordering::Release);
+                    }
+                    Ok(RenderMessage::Resize { width, height }) => {
+                        let g = range_event_start!("Recreate Resize");
+                        vulkan_backend.recreate_resize((width, height));
+                    }
+                    Ok(RenderMessage::Exit) | Err(_) => {
+                        info!("Render thread exiting");
+                        break;
+                    }
+                }
+            }
+        });
+
         Self {
-            scene: object_group,
+            scene,
+            render_tx: tx,
+            render_thread: Some(render_thread),
+            render_ready: Arc::new(AtomicBool::new(true)),
             app_finished: false,
             prev_touch_event_time: Instant::now(),
-
-            vulkan_backend,
             window,
-
             last_sec: Instant::now(),
             frame_cnt: 0,
-
             rendering_active: true,
             start_time: Instant::now(),
             bg_color: [0.0, 0.0, 0.0],
             last_touch_pos: [0.0, 0.0],
-
             last_frame_time: Instant::now(),
             trail_last_update: Instant::now(),
         }
@@ -230,7 +270,7 @@ impl AppState {
                 },
                 ..
             } => {
-                self.scene.mirror_lamp.modify_pos(|mut pos| {
+                self.scene.lock().mirror_lamp.modify_pos(|mut pos| {
                     pos[0] += 0.1;
                     pos
                 });
@@ -245,7 +285,7 @@ impl AppState {
                 },
                 ..
             } => {
-                self.scene.mirror_lamp.modify_pos(|mut pos| {
+                self.scene.lock().mirror_lamp.modify_pos(|mut pos| {
                     pos[0] -= 0.1;
                     pos
                 });
@@ -260,7 +300,7 @@ impl AppState {
                 },
                 ..
             } => {
-                self.scene.mirror_lamp.modify_pos(|mut pos| {
+                self.scene.lock().mirror_lamp.modify_pos(|mut pos| {
                     pos[1] += 0.1;
                     pos
                 });
@@ -275,7 +315,7 @@ impl AppState {
                 },
                 ..
             } => {
-                self.scene.mirror_lamp.modify_pos(|mut pos| {
+                self.scene.lock().mirror_lamp.modify_pos(|mut pos| {
                     pos[1] -= 0.1;
                     pos
                 });
@@ -296,9 +336,10 @@ impl AppState {
                     (t.location.y as f32 / self.window.inner_size().height as f32) * 2.0 - 1.0,
                 ];
                 self.last_touch_pos = pos;
-                self.scene.mirror_lamp.set_pos([-pos[0], -pos[1]]);
-                
-                self.scene.trail.create(self.start_time.elapsed().as_millis() as u64  + 10_000, CircleAttributes {
+
+                let mut scene = self.scene.lock();
+                scene.mirror_lamp.set_pos([-pos[0], -pos[1]]);
+                scene.trail.create(self.start_time.elapsed().as_millis() as u64  + 10_000, CircleAttributes {
                     pos: pos.into(),
                     color: [1.0, 0.2, 0.4, 1.0].into(),
                     trig_time: i32::MAX.into(),
@@ -310,10 +351,11 @@ impl AppState {
                 ..
             } => {
                 info!("Mouse left button pressed!");
-                self.scene.mirror_lamp.set_pos([0.0, 0.0]);
                 self.last_touch_pos = [0.0, 0.0];
-                
-                self.scene.trail.create(self.start_time.elapsed().as_millis() as u64  + 10_000, CircleAttributes {
+
+                let mut scene = self.scene.lock();
+                scene.mirror_lamp.set_pos([0.0, 0.0]);
+                scene.trail.create(self.start_time.elapsed().as_millis() as u64  + 10_000, CircleAttributes {
                     pos: [rand::random_range(-1.0..1.0), rand::random_range(-1.0..1.0)].into(),
                     color: [1.0, 0.2, 0.4, 1.0].into(),
                     trig_time: i32::MAX.into(),
@@ -322,17 +364,8 @@ impl AppState {
 
             WindowEvent::RedrawRequested => {
                 let now = self.start_time.elapsed().as_millis() as f32;
-                // self.object_group.time.update(Time {
-                //     time: now,
-                // });
-                // self.object_group.map_stats.update(MapStats {
-                //     r: 0.5 + 0.5 * (now as f32 / 1000.0).sin(),
-                //     ar: 0.0
-                // });
                 let g = range_event_start!("[APP] Redraw requested");
                 if !self.app_finished && self.rendering_active {
-                    // info!("Begin rendering ...");
-                    //recalculate bg
                     let normalized_touch_pos = [
                         (self.last_touch_pos[0] + 1.0) / 2.0,
                         (self.last_touch_pos[1] + 1.0) / 2.0,
@@ -344,7 +377,6 @@ impl AppState {
                         normalized_touch_pos[1] * 0.6 + normalized_touch_pos[0] * 0.3 + (now / 600.0 + 2.0).sin() * 0.05,
                     ];
 
-                    // adjust new_color, depending on color distance
                     let color_dir = [
                         new_color[0] - self.bg_color[0],
                         new_color[1] - self.bg_color[1],
@@ -364,36 +396,38 @@ impl AppState {
                     self.bg_color[1] += color_change[1];
                     self.bg_color[2] += color_change[2];
 
-                    // update trail
-                    self.scene.time.set(Time{time: (self.start_time.elapsed().as_millis() as i32).into()});
                     if self.trail_last_update.elapsed().as_secs_f32() > 0.2 {
                         let trail_id = self.trail_last_update.duration_since(self.start_time).as_millis() as u64;
 
-                        let cur_entry = self.scene.trail.create(trail_id, CircleAttributes {
+                        let mut scene = self.scene.lock();
+                        scene.trail.create(trail_id, CircleAttributes {
                             pos: [self.last_touch_pos[0], self.last_touch_pos[1]].into(),
                             color: [1.0, 0.7, 1.0, 1.0].into(),
                             trig_time: (trail_id as i32 + 1_500).into(),
                         });
+                        scene.trail.auto_remove(trail_id.saturating_sub(2_000));
 
-                        self.scene.trail.auto_remove(trail_id.saturating_sub(2_000));
-                        
                         self.trail_last_update = Instant::now();
                     }
 
-                    self.vulkan_backend.render(&mut self.scene, self.bg_color)?;
-
-                    self.frame_cnt += 1;
+                    // Only send redraw if render thread is ready (non-blocking check)
+                    if self.render_ready.load(Ordering::Acquire) {
+                        self.render_ready.store(false, Ordering::Release);
+                        let _ = self.render_tx.send(RenderMessage::Redraw {
+                            bg_color: self.bg_color,
+                            done: Arc::clone(&self.render_ready),
+                        });
+                        self.frame_cnt += 1;
+                    } else {
+                        // Render thread is still busy, skip this frame
+                    }
                     if self.last_sec.elapsed().as_secs() >= 1 {
-                        instant_event!("[APP] New sec!");
-                        sparkles::flush_thread_local();
-
                         info!("FPS: {}", self.frame_cnt);
                         self.frame_cnt = 0;
                         self.last_sec = Instant::now();
                     }
                     let g = range_event_start!("[APP] window.request_redraw call");
                     self.window.request_redraw();
-                    // info!("Finish rendering");
                 }
                 self.last_frame_time = Instant::now();
             }
@@ -410,14 +444,18 @@ impl AppState {
                 } else {
                     if !self.rendering_active {
                         info!("Continue rendering...");
-                    }
-                    else {
+                    } else {
                         let aspect = self.calculate_aspect();
-                        self.scene.map_stats.modify(|stats| {
+                        self.scene.lock().map_stats.modify(|stats| {
                             stats.aspect = aspect.into();
                         })
                     }
-                    self.vulkan_backend.recreate_resize((size.width, size.height));
+
+                    let _ = self.render_tx.send(RenderMessage::Resize {
+                        width: size.width,
+                        height: size.height,
+                    });
+
                     self.rendering_active = true;
                 }
             }
@@ -426,5 +464,21 @@ impl AppState {
         }
 
         Ok(())
+    }
+}
+
+impl Drop for AppState {
+    fn drop(&mut self) {
+        info!("AppState dropping, sending exit message to render thread");
+        let _ = self.render_tx.send(RenderMessage::Exit);
+
+        if let Some(thread) = self.render_thread.take() {
+            info!("Waiting for render thread to finish...");
+            if let Err(e) = thread.join() {
+                error!("Error joining render thread: {:?}", e);
+            } else {
+                info!("Render thread finished successfully");
+            }
+        }
     }
 }

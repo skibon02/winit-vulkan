@@ -1,6 +1,5 @@
 use std::ops::{Deref, DerefMut};
 use crate::collect_state::{CollectDrawStateUpdates, GraphicsUpdateCmd};
-use crate::collect_state::buffer_updates::BufferUpdateData;
 use crate::collect_state::uniform_updates::ImageCmd;
 use crate::layout::LayoutInfo;
 use crate::object_handles::{get_new_uniform_id, UniformResourceId};

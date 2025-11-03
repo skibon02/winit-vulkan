@@ -9,6 +9,7 @@ crate-type=["cdylib", "rlib"]
 [dependencies]
 simple_logger = "5.0.0"
 log = "0.4.22"
+parking_lot = "0.12.5"
 
 # system
 winit = { version = "0.30.5", features = ["android-native-activity"] }
